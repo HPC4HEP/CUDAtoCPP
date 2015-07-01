@@ -1,3 +1,0 @@
-# CUDAtoCPP
-
-PROVA COMMIt
