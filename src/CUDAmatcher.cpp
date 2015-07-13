@@ -1,3 +1,11 @@
+//----------------------------------------------------------------------//
+// Source tool using libTooling.					//
+//									//
+// Based on tooling_sample.cpp by Eli Bendersky (eliben@gmail.com)	//
+//									//
+// Luca Atzori (luca.atzori@cern.ch)					//
+//----------------------------------------------------------------------//
+
 #include <string>
 #include <iostream>
 
