@@ -3,7 +3,9 @@
 
 int cudaConfigureCall(int gridSize, int blockSize);
 
-//int cudaConfigureCall(dim3 gridSize, dim3 blockSize, size_t sharedSize = 0, cudaStream_t stream = 0);
+//int cudaConfigureCall(dim3 gridSize, dim3 blockSize, size_t sharedSize);
+
+//int cudaConfigureCall(dim3 gridSize, dim3 blockSize, size_t sharedSize, cudaStream_t stream);
 
 __attribute__((global)) void add(int *a, int *b, int *c){
 	*c = *a + *b;
