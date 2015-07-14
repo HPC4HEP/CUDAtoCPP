@@ -1,10 +1,10 @@
-//----------------------------------------------------------------------//
-// Source tool using libTooling.					//
-//									//
-// Based on tooling_sample.cpp by Eli Bendersky (eliben@gmail.com)	//
-//									//
-// Luca Atzori (luca.atzori@cern.ch)					//
-//----------------------------------------------------------------------//
+//----------------------------------------------------------------------
+// Source tool using libTooling.
+//
+// Based on tooling_sample.cpp by Eli Bendersky (eliben@gmail.com)
+//
+// Luca Atzori (luca.atzori@cern.ch)
+//----------------------------------------------------------------------
 
 #include <string>
 #include <iostream>
@@ -58,18 +58,18 @@ public:
 	//always initialize handlers with rewriters
 	MyASTConsumer(Rewriter &R) : KCH(R), KDH(R){
 
-		//Trying to match Kernel Def
-		//TODO: works only without macro definition
+		//Matching kernel definition, or actually every __global__ function
+		//TODO: works only without macro definition?
 		//e.g.: NO #define __global__ __attribute__((global))
 		Matcher.addMatcher(
-				functionDecl(
+				functionDecl( //functionDecl or decl?
 						hasAttr(
 								clang::attr::CUDAGlobal
 								)
 						).bind("kdef"),
 				&KDH);
 
-		//Trying to match Kernel Call
+		//Matching kernel call
 		Matcher.addMatcher(clang::ast_matchers::CUDAKernelCallExpr().bind("kcall"),
 				&KCH);
 
@@ -101,6 +101,7 @@ private:
 	KernelCallHandler KCH;
 	KernelDefHandler KDH;
 };
+
 
 // For each source file provided to the tool, a new FrontendAction is created.
 class MyFrontendAction : public ASTFrontendAction {

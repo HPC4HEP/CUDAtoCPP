@@ -1,3 +1,4 @@
+//#include "../src/cuda.h"
 
 #define __global__ __attribute__((global))
 #define __launch_bounds__(...) __attribute__((launch_bounds(__VA_ARGS__)))
