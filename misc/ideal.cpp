@@ -1,6 +1,8 @@
 #include <math.h>
 #include <stddef.h>
 #include <thread>
+#include <vector>
+#include <iostream>
 
 struct dim3 {
   unsigned x, y, z;
@@ -42,16 +44,27 @@ int main()
   int blockSize, gridSize;
   blockSize = 1024;
   gridSize = (int)ceil((float)n/blockSize);
-  unsigned int AVAILABLE_THREADS = std::thread::hardware_concurrency();
+  unsigned int AVAILABLE_THREADS = 8; //std::thread::hardware_concurrency();
+  std::cout << AVAILABLE_THREADS << "\n\n";
   auto nSteps = (gridSize+AVAILABLE_THREADS-1)/AVAILABLE_THREADS;
-  std::vector<std::thread> t(AVAILABLE_THREADS);
+  std::vector<std::thread> t;
   for(int tid=0; tid < AVAILABLE_THREADS; ++tid){
       for(auto k=0; k < nSteps; ++k){
-  	auto blockIdx = tid + AVAILABLE_THREADS*k;
-	if(blockIdx < blockSize)
-	    t[tid] = std::thread(vecAdd, d_a, d_b, d_c, n, gridSize, blockSize, blockIdx);
+    	  auto blockIdx = tid + AVAILABLE_THREADS*k;
+    	  if(blockIdx < blockSize)
+    		  t.push_back(std::thread(vecAdd, h_a, h_b, h_c, n, gridSize, blockSize, blockIdx));
       }
   }
+
+
+  for(auto& thread : t)
+	  thread.join();
+
+  double sum = 0;
+  for(i=0; i<n; i++)
+      sum += h_c[i];
+  std::cout << "final result: " << sum/n << "\n";
+
   free(h_a);
   free(h_b);
   free(h_c);
