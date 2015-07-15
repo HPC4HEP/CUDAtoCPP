@@ -1,8 +1,21 @@
+#include <math.h>
+#include <stddef.h>
+#include <thread>
+
+struct dim3 {
+  unsigned x, y, z;
+  dim3(unsigned x, unsigned y = 1, unsigned z = 1) : x(x), y(y), z(z) {}
+};
+
 void vecAdd(double *a, double *b, double *c, int n, dim3 gridDim, dim3 blockDim, dim3 blockIdx)
 {
-  for(auto threadIdx.x : blockDim.x){
-    for(auto threadIdx.y : blockDim.y){
-      for(auto threadIdx.z : blockDim.z){
+  dim3 threadIdx(blockDim.x, blockDim.y, blockDim.z);
+  for(threadIdx.x=0; threadIdx.x < blockDim.x; threadIdx.x++){
+//  for(auto threadIdx.x : blockDim.x){
+    for(threadIdx.y=0; threadIdx.y < blockDim.y; threadIdx.y++){
+//    for(auto threadIdx.y : blockDim.y){
+      for(threadIdx.z=0; threadIdx.z < blockDim.z; threadIdx.z++){
+//      for(auto threadIdx.z : blockDim.z){
         int id = blockIdx.x*blockDim.x+threadIdx.x;
         if(id<n){
           c[id] = a[id] + b[id];
