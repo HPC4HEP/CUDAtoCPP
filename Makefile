@@ -93,7 +93,7 @@ BUILDDIR := build
 .PHONY: all
 all: make_builddir \
 	emit_build_config \
-	$(BUILDDIR)/CUDAmatcher
+	$(BUILDDIR)/CUDARewriter
 
 .PHONY: emit_build_config
 emit_build_config: make_builddir
@@ -102,11 +102,11 @@ emit_build_config: make_builddir
 .PHONY: make_builddir
 make_builddir:
 	@test -d $(BUILDDIR) || mkdir $(BUILDDIR)
-
-$(BUILDDIR)/CUDAmatcher: $(SRCDIR)/CUDAmatcher.cpp
+		
+$(BUILDDIR)/CUDARewriter: $(SRCDIR)/CUDARewriter.cpp
 	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) $(CLANG_INCLUDES) $^ \
 		$(CLANG_LIBS) $(LLVM_LDFLAGS) -o $@
-
+		
 .PHONY: clean
 clean:
 	rm -rf $(BUILDDIR)/* *.dot test/*.pyc test/__pycache__

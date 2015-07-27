@@ -1,4 +1,4 @@
-__global__ void vecAdd(double *a, double *b, double *c, int n)
+__host__ void vecAdd(double *a, double *b, double *c, int n)
 {
 
 	
