@@ -1,3 +1,5 @@
 # CUDAtoCPP
 
-Nothing to say?!
+Goal: translating source-to-source CUDA to C++
+
+clang, AST, ASTConsumer, CUDA, compiler, C++, LLVM, libTooling
