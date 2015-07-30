@@ -1,5 +1,5 @@
 /*
- * Matcher.cpp
+ * CUDARewriter.cpp
  *
  *  Created on: 24/lug/2015
  *      Author: latzori
@@ -43,57 +43,137 @@ using namespace llvm::sys::path;
 
 static llvm::cl::OptionCategory MatcherSampleCategory("Matcher Sample");
 
+class KernelDeclHandler : public MatchFinder::MatchCallback {
+public:
+	KernelDeclHandler(Rewriter &Rewrite, Preprocessor* PP) : Rewrite(Rewrite), PP(PP){}
+
+	virtual void run(const MatchFinder::MatchResult &Result){
+		clang::SourceManager* const SM = Result.SourceManager;
+		if (const clang::FunctionDecl * kerneldecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("CUDA_kernel_functionDecl")){
+			std::string SStr;
+			llvm::raw_string_ostream S(SStr);
+			kerneldecl->print(S);
+			std::cout << "kerneldecl is " << S.str() << "\n";
+			if(CUDAGlobalAttr* gattr = kerneldecl->getAttr<CUDAGlobalAttr>()){
+				SourceLocation gattrloc = SM->getExpansionLoc(gattr->getLocation());
+				if(SM->getFileID(gattrloc) != SM->getMainFileID()){printf("gattrloc: Different IDs\n");} else{
+				SourceLocation gattrend = PP->getLocForEndOfToken(gattrloc);
+				SourceRange sr(gattrloc, gattrend);
+				Rewrite.ReplaceText(gattrloc, Rewrite.getRangeSize(sr),	"");
+				}
+			}
+		}
+	}
+private:
+	Rewriter &Rewrite;
+	Preprocessor* PP;
+};
+
 class AttributeHandler : public MatchFinder::MatchCallback {
 public:
 	AttributeHandler(Rewriter &Rewrite, Preprocessor* PP) : Rewrite(Rewrite), PP(PP){}
 
 	virtual void run(const MatchFinder::MatchResult &Result){
 		clang::SourceManager* const SM = Result.SourceManager;
-		const clang::FunctionDecl * hostfunc = Result.Nodes.getNodeAs<clang::FunctionDecl>("hostattr");
-		CUDAHostAttr* attr = hostfunc->getAttr<CUDAHostAttr>();
-		SourceLocation attrloc = SM->getExpansionLoc(attr->getLocation());
 
-	    std::string SStr;
-	    llvm::raw_string_ostream S(SStr);
-		hostfunc->print(S);
-		std::cout << "hostfunc is " << S.str() << "\n";
+		//Deleting __host__ attribute
+		if(const clang::FunctionDecl * hostfunc = Result.Nodes.getNodeAs<clang::FunctionDecl>("CUDAHost_Attr_functionDecl")){
 
-		//How the hell i clean the buffer?
-		attrloc.print(S,*SM);
-		std::cout << "attrloc is " << S.str() << "\n";
+			std::string SStr;
+			llvm::raw_string_ostream S(SStr);
+			hostfunc->print(S);
+			std::cout << "hostfunc is " << S.str() << "\n";
+			if(CUDAHostAttr* hattr = hostfunc->getAttr<CUDAHostAttr>()){
+				SourceLocation hattrloc = SM->getExpansionLoc(hattr->getLocation());
+				if(SM->getFileID(hattrloc) != SM->getMainFileID()){printf("hattrloc: Different IDs\n");} else{
+				SourceLocation hattrend = PP->getLocForEndOfToken(hattrloc);
+				SourceRange sr(hattrloc, hattrend);
+				Rewrite.ReplaceText(hattrloc, Rewrite.getRangeSize(sr),	"");
+				}
+			}
+		}
 
-		SourceLocation attrend = PP->getLocForEndOfToken(attrloc);
-		attrend.print(S,*SM);
-		std::cout << "attrend is " << S.str() << "\n";
+		//Deleting __device__ attribute
+		if (const clang::FunctionDecl * devicefunc = Result.Nodes.getNodeAs<clang::FunctionDecl>("CUDADevice_Attr_functionDecl")){
+			std::string SStr2;
+			llvm::raw_string_ostream S2(SStr2);
+			devicefunc->print(S2);
+			std::cout << "devicefunc is " << S2.str() << "\n";
 
-		SourceRange sr(attrloc, attrend);
-		Rewrite.ReplaceText(attrloc,
-								Rewrite.getRangeSize(sr),
-								"");
+			if(CUDADeviceAttr* dattr = devicefunc->getAttr<CUDADeviceAttr>()){
+				SourceLocation dattrloc = SM->getExpansionLoc(dattr->getLocation());
+
+				if(SM->getFileID(dattrloc) != SM->getMainFileID()){printf("dattrloc: Different IDs\n");} else{
+
+				SourceLocation dattrend = PP->getLocForEndOfToken(dattrloc);
+				SourceRange sr(dattrloc, dattrend);
+				Rewrite.ReplaceText(dattrloc, Rewrite.getRangeSize(sr),	"");}
+			}
+		}
+
+		//And now we have to translate the body of the function!
+
 	}
 
 private:
 	Rewriter &Rewrite;
 	Preprocessor *PP;
 };
-
+/**
+*
+* Our attempt is to write only matchers for entry points, and then
+* recursively call more specific functions from the handlers!
+*
+* TODO list:
+* - definizioni di kernel (dopo traduco il body)
+* - definizioni di funzioni con attributi __device__ o __host__ (rimuovo
+* 	l'attributo e poi traduco il body)
+* - il main come lo tratto? perché dentro avrò sintassi cuda...
+*
+*/
 class MyASTConsumer : public ASTConsumer {
 public:
 	MyASTConsumer(CompilerInstance *comp, Rewriter &R) : CI(comp)  {
 
+		//Preprocessor
 		Preprocessor* P = &CI->getPreprocessor();
-		AttributeHandler *AH = new AttributeHandler(R, P);
-		//AH(R, &CI->getPreprocessor());
 
+		//Initialize all the handlers!
+		AH = new AttributeHandler(R, P);
+		KDH = new KernelDeclHandler(R, P);
+
+		//AH2 = new AttributeHandler(R, P);
+
+		//Matches all the function declarations with an __host__ attribute
 		Matcher.addMatcher(
 				functionDecl(
 						hasAttr(
 								clang::attr::CUDAHost
 								)
-						).bind("hostattr"),
+						).bind("CUDAHost_Attr_functionDecl"),
 				AH);
 
+		//Matches all the function declarations with a __device__ attribute
+		Matcher.addMatcher(
+				functionDecl(
+						hasAttr(
+								clang::attr::CUDADevice
+								)
+						).bind("CUDADevice_Attr_functionDecl"),
+				AH);
+
+		//Matches all the function declarations with a __global__ attribute (kernels?)
+		Matcher.addMatcher(
+				functionDecl(
+						hasAttr(
+								clang::attr::CUDAGlobal
+								)
+						).bind("CUDA_kernel_functionDecl"),
+				KDH);
+		printf("ASTConsumer: added matchers\n");
+
 	}
+
 	// Run the matchers when we have the whole TU parsed.
 	void HandleTranslationUnit(ASTContext &Context) override {
 		Matcher.matchAST(Context);
@@ -102,7 +182,10 @@ public:
 
 private:
 	MatchFinder Matcher;
-	//AttributeHandler AH;
+
+	AttributeHandler *AH;
+
+	KernelDeclHandler *KDH;
 
 	//Preprocessor* PP;
 	CompilerInstance *CI;

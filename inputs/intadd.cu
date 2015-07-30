@@ -1,11 +1,14 @@
-//#include "../src/cuda.h"
+#include "../src/cuda2.h"
 
-__attribute__((global)) void add(int *a, int *b, int *c){
-//__global__ void add(int *a, int *b, int*c){
+__global__ void add(int *a, int *b, int*c){
 	*c = *a + *b;
 }
 
-__attribute__((host)) int something(){
+__host__ int somethingelse(){
+	return 3;
+}
+
+__device__ int something(){
 	return 2;
 }
 
@@ -14,7 +17,7 @@ int main(void){
 	int *d_a, *d_b, *d_c;
 	int size = sizeof(int);
 	
-	cudaStream_t st;
+	//cudaStream_t st;
 
 	//cudaMalloc((void**)&d_a, size);
 	//cudaMalloc((void**)&d_b, size);
@@ -26,9 +29,9 @@ int main(void){
 	
 	//cudaMemcpy(d_a, &a, size, cudaMemcpyHostToDevice);
 	//cudaMemcpy(d_b, &b, size, cudaMemcpyHostToDevice);
-	dim3 ggg(1,1,1);
+	//dim3 ggg(1,1,1);
 	dim3 bbb(1,1,1);
-	add<<<ggg,bbb, 0, st>>>(d_a, d_b, d_c);
+	//add<<<1,1>>>(d_a, d_b, d_c);
 
 	//cudaMemcpy(&c, d_c, size, cudaMemcpyDeviceToHost);
 

@@ -1,7 +1,7 @@
 /* Minimal declarations for CUDA support.  Testing purposes only. */
 
-#include "/home/latzori/clang-llvm/build/lib/clang/3.7.0/include/stddef.h"
 //#include <stddef.h>
+#include "/home/latzori/clang-llvm/build/lib/clang/3.7.0/include/stddef.h"
 
 #define __constant__ __attribute__((constant))
 #define __device__ __attribute__((device))
@@ -17,8 +17,5 @@ struct dim3 {
 
 typedef struct cudaStream *cudaStream_t;
 
-//int cudaConfigureCall(dim3 gridSize, dim3 blockSize);
-
-//int cudaConfigureCall(dim3 gridSize, dim3 blockSize, size_t sharedSize);
-
-int cudaConfigureCall(dim3 gridSize, dim3 blockSize, size_t sharedSize=0, cudaStream_t stream=0);
+int cudaConfigureCall(dim3 gridSize, dim3 blockSize, size_t sharedSize = 0,
+                      cudaStream_t stream = 0);
