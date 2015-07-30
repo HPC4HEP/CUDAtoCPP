@@ -119,6 +119,86 @@ private:
 	Rewriter &Rewrite;
 	Preprocessor *PP;
 };
+
+class CUDAKCallHandler : public MatchFinder::MatchCallback {
+public:
+	CUDAKCallHandler(Rewriter &Rewrite, Preprocessor* PP) : Rewrite(Rewrite), PP(PP){}
+
+	virtual void run(const MatchFinder::MatchResult &Result){
+		clang::SourceManager* const SM = Result.SourceManager;
+
+		//Do i need the check on the file ID in this case?
+		if(const clang::CUDAKernelCallExpr * kernelCall = Result.Nodes.getNodeAs<clang::CUDAKernelCallExpr>("CUDA_kernel_callExpr")){
+	        const CallExpr *kernelConfig = kernelCall->getConfig();
+	        //Expr *grid = kernelConfig->getArg(0);
+
+	        const Expr *block = kernelConfig->getArg(1);
+
+	        //TEST Rewrite the threadblock expression
+	        const CXXConstructExpr *construct = dyn_cast<CXXConstructExpr>(block);
+	        const ImplicitCastExpr *cast = dyn_cast<ImplicitCastExpr>(construct->getArg(0));
+
+	        //TODO: Check if all kernel launch parameters now show up as MaterializeTemporaryExpr
+	    	// if so, standardize it as this with the ImplicitCastExpr fallback
+	    	if (cast == NULL) {
+	    	    //try chewing it up as a MaterializeTemporaryExpr
+	    	    const MaterializeTemporaryExpr *mat = dyn_cast<MaterializeTemporaryExpr>(construct->getArg(0));
+	    	    if (mat) {
+	    		cast = dyn_cast<ImplicitCastExpr>(mat->GetTemporaryExpr());
+	    	    }
+	    	}
+	    	const DeclRefExpr *dre;
+			if (cast == NULL) {
+				std::cout << "TEST?"
+						  << construct->getLocStart().printToString(*SM)
+						  << "\n";
+				dre = dyn_cast<DeclRefExpr>(construct->getArg(0));
+			} else {
+				std::cout << "TEST?"
+						  << construct->getLocStart().printToString(*SM)
+						  << " (cast wasn't NULL)\n";
+				dre = dyn_cast<DeclRefExpr>(cast->getSubExprAsWritten());
+			}
+			if (dre) {
+				//Variable passed
+				const ValueDecl *value = dre->getDecl();
+				std::string type = value->getType().getAsString();
+				unsigned int dims = 1;
+				std::stringstream args;
+				if (type == "dim3") {
+					dims = 3;
+					for (unsigned int i = 0; i < 3; i++)
+						args << "localWorkSize[" << i << "] = " << value->getNameAsString() << "[" << i << "];\n";
+				} else {
+					//Some integer type, likely
+				    SourceLocation a(SM->getExpansionLoc(dre->getLocStart())), b(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(dre->getLocEnd())), 0,  *SM, Result.Context->getLangOpts()));
+				    std::string boh = std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
+					args << "localWorkSize[0] = " << boh << ";\n";
+				}
+				std::cout << args.str() << "\n";
+			}
+			//else {
+//				//Some other expression passed to block
+//				Expr *arg = cast->getSubExprAsWritten();
+//				std::string s;
+//				RewriteHostExpr(arg, s);
+//			}
+//			const CallExpr* conf = kcall->getConfig();
+//			printf("kernel call nargs %d\n", conf->getNumArgs());
+//			const Expr ** args;
+//			args = malloc(conf->getNumArgs()*sizeof(const Expr*));
+//			for(int i = 0; i < conf->getNumArgs(); i++){
+//				args[i] = conf->getArg(i);
+//
+//				conf->
+//			}
+		}
+	}
+private:
+	Rewriter &Rewrite;
+	Preprocessor *PP;
+
+};
 /**
 *
 * Our attempt is to write only matchers for entry points, and then
@@ -141,8 +221,7 @@ public:
 		//Initialize all the handlers!
 		AH = new AttributeHandler(R, P);
 		KDH = new KernelDeclHandler(R, P);
-
-		//AH2 = new AttributeHandler(R, P);
+		KCH = new CUDAKCallHandler(R, P);
 
 		//Matches all the function declarations with an __host__ attribute
 		Matcher.addMatcher(
@@ -170,6 +249,10 @@ public:
 								)
 						).bind("CUDA_kernel_functionDecl"),
 				KDH);
+
+		Matcher.addMatcher(clang::ast_matchers::CUDAKernelCallExpr().bind("CUDA_kernel_callExpr"),KCH);
+
+		//DEBUG
 		printf("ASTConsumer: added matchers\n");
 
 	}
@@ -186,6 +269,8 @@ private:
 	AttributeHandler *AH;
 
 	KernelDeclHandler *KDH;
+
+	CUDAKCallHandler *KCH;
 
 	//Preprocessor* PP;
 	CompilerInstance *CI;
