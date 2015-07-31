@@ -53,13 +53,16 @@ public:
 			std::string SStr;
 			llvm::raw_string_ostream S(SStr);
 			kerneldecl->print(S);
-			std::cout << "kerneldecl is " << S.str() << "\n";
+			//std::cout << "kerneldecl is " << S.str() << "\n";
 			if(CUDAGlobalAttr* gattr = kerneldecl->getAttr<CUDAGlobalAttr>()){
 				SourceLocation gattrloc = SM->getExpansionLoc(gattr->getLocation());
-				if(SM->getFileID(gattrloc) != SM->getMainFileID()){printf("gattrloc: Different IDs\n");} else{
-				SourceLocation gattrend = PP->getLocForEndOfToken(gattrloc);
-				SourceRange sr(gattrloc, gattrend);
-				Rewrite.ReplaceText(gattrloc, Rewrite.getRangeSize(sr),	"");
+				if(SM->getFileID(gattrloc) != SM->getMainFileID()){
+					std::cout << "Skipped rewriting @ loc " << gattrloc.printToString(*SM) << ": FileID different from MainFileID\n";
+					std::cout << S.str() << "\n";
+				} else {
+					SourceLocation gattrend = PP->getLocForEndOfToken(gattrloc);
+					SourceRange sr(gattrloc, gattrend);
+					Rewrite.ReplaceText(gattrloc, Rewrite.getRangeSize(sr),	"");
 				}
 			}
 		}
@@ -82,13 +85,16 @@ public:
 			std::string SStr;
 			llvm::raw_string_ostream S(SStr);
 			hostfunc->print(S);
-			std::cout << "hostfunc is " << S.str() << "\n";
+			//std::cout << "hostfunc is " << S.str() << "\n";
 			if(CUDAHostAttr* hattr = hostfunc->getAttr<CUDAHostAttr>()){
 				SourceLocation hattrloc = SM->getExpansionLoc(hattr->getLocation());
-				if(SM->getFileID(hattrloc) != SM->getMainFileID()){printf("hattrloc: Different IDs\n");} else{
-				SourceLocation hattrend = PP->getLocForEndOfToken(hattrloc);
-				SourceRange sr(hattrloc, hattrend);
-				Rewrite.ReplaceText(hattrloc, Rewrite.getRangeSize(sr),	"");
+				if(SM->getFileID(hattrloc) != SM->getMainFileID()){
+					std::cout << "Skipped rewriting @ loc " << hattrloc.printToString(*SM) << ": FileID different from MainFileID\n";
+					std::cout << S.str() << "\n";
+				} else {
+					SourceLocation hattrend = PP->getLocForEndOfToken(hattrloc);
+					SourceRange sr(hattrloc, hattrend);
+					Rewrite.ReplaceText(hattrloc, Rewrite.getRangeSize(sr),	"");
 				}
 			}
 		}
@@ -98,16 +104,19 @@ public:
 			std::string SStr2;
 			llvm::raw_string_ostream S2(SStr2);
 			devicefunc->print(S2);
-			std::cout << "devicefunc is " << S2.str() << "\n";
+			//std::cout << "devicefunc is " << S2.str() << "\n";
 
 			if(CUDADeviceAttr* dattr = devicefunc->getAttr<CUDADeviceAttr>()){
 				SourceLocation dattrloc = SM->getExpansionLoc(dattr->getLocation());
 
-				if(SM->getFileID(dattrloc) != SM->getMainFileID()){printf("dattrloc: Different IDs\n");} else{
-
-				SourceLocation dattrend = PP->getLocForEndOfToken(dattrloc);
-				SourceRange sr(dattrloc, dattrend);
-				Rewrite.ReplaceText(dattrloc, Rewrite.getRangeSize(sr),	"");}
+				if(SM->getFileID(dattrloc) != SM->getMainFileID()){
+					std::cout << "Skipped rewriting @ loc " << dattrloc.printToString(*SM) << ": FileID different from MainFileID\n";
+					std::cout << S2.str() << "\n";
+				} else {
+					SourceLocation dattrend = PP->getLocForEndOfToken(dattrloc);
+					SourceRange sr(dattrloc, dattrend);
+					Rewrite.ReplaceText(dattrloc, Rewrite.getRangeSize(sr),	"");
+				}
 			}
 		}
 
@@ -129,10 +138,18 @@ public:
 
 		//Do i need the check on the file ID in this case?
 		if(const clang::CUDAKernelCallExpr * kernelCall = Result.Nodes.getNodeAs<clang::CUDAKernelCallExpr>("CUDA_kernel_callExpr")){
-	        const CallExpr *kernelConfig = kernelCall->getConfig();
-	        //Expr *grid = kernelConfig->getArg(0);
 
-	        const Expr *block = kernelConfig->getArg(1);
+			std::cout << "DEBUG: found a kernel call!\n";
+
+			//Name of the kernel function
+			const FunctionDecl* dircallee = kernelCall->getDirectCallee();
+
+			std::cout << "getDirectCallee: " << dircallee->getNameAsString() << "\n";
+
+			//The kernel config is the <<<,>>> stuff
+	        const CallExpr *kernelConfig = kernelCall->getConfig();
+	        const Expr* grid = kernelConfig->getArg(0);
+	        const Expr* block = kernelConfig->getArg(1);
 
 	        //TEST Rewrite the threadblock expression
 	        const CXXConstructExpr *construct = dyn_cast<CXXConstructExpr>(block);
@@ -141,48 +158,56 @@ public:
 	        //TODO: Check if all kernel launch parameters now show up as MaterializeTemporaryExpr
 	    	// if so, standardize it as this with the ImplicitCastExpr fallback
 	    	if (cast == NULL) {
+	    		std::cout << "cast was NULL";
 	    	    //try chewing it up as a MaterializeTemporaryExpr
 	    	    const MaterializeTemporaryExpr *mat = dyn_cast<MaterializeTemporaryExpr>(construct->getArg(0));
 	    	    if (mat) {
-	    		cast = dyn_cast<ImplicitCastExpr>(mat->GetTemporaryExpr());
+	    	    	std::cout << " and mat wasn't";
+	    	    	cast = dyn_cast<ImplicitCastExpr>(mat->GetTemporaryExpr());
 	    	    }
+	    	    std::cout << "\n";
 	    	}
 	    	const DeclRefExpr *dre;
 			if (cast == NULL) {
-				std::cout << "TEST?"
+				std::cout << "TEST! "
 						  << construct->getLocStart().printToString(*SM)
 						  << "\n";
 				dre = dyn_cast<DeclRefExpr>(construct->getArg(0));
 			} else {
-				std::cout << "TEST?"
+				std::cout << "TEST! "
 						  << construct->getLocStart().printToString(*SM)
 						  << " (cast wasn't NULL)\n";
 				dre = dyn_cast<DeclRefExpr>(cast->getSubExprAsWritten());
 			}
 			if (dre) {
+				std::cout << "dre wasn't null\n";
 				//Variable passed
 				const ValueDecl *value = dre->getDecl();
 				std::string type = value->getType().getAsString();
+				std::cout << "type is "<< type << "\n";
 				unsigned int dims = 1;
 				std::stringstream args;
 				if (type == "dim3") {
 					dims = 3;
 					for (unsigned int i = 0; i < 3; i++)
-						args << "localWorkSize[" << i << "] = " << value->getNameAsString() << "[" << i << "];\n";
+						std::cout << "value " << i << " = " << value->getNameAsString() << "\n";
+						//args << "localWorkSize[" << i << "] = " << value->getNameAsString() << "[" << i << "];\n";
 				} else {
 					//Some integer type, likely
 				    SourceLocation a(SM->getExpansionLoc(dre->getLocStart())), b(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(dre->getLocEnd())), 0,  *SM, Result.Context->getLangOpts()));
 				    std::string boh = std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
-					args << "localWorkSize[0] = " << boh << ";\n";
+					std::cout << "value is "<< boh << "\n";
+				    //args << "localWorkSize[0] = " << boh << ";\n";
 				}
-				std::cout << args.str() << "\n";
-			}
-			//else {
-//				//Some other expression passed to block
-//				Expr *arg = cast->getSubExprAsWritten();
-//				std::string s;
+				//std::cout << args.str() << "\n";
+			} else {
+				//Some other expression passed to block
+				const Expr *arg = cast->getSubExprAsWritten();
+				std::string s;
+				std::cout << "dre was null\n" ;
+				std::cout << "loc of expr: " << arg->getExprLoc().printToString(*SM) << "\n";
 //				RewriteHostExpr(arg, s);
-//			}
+			}
 //			const CallExpr* conf = kcall->getConfig();
 //			printf("kernel call nargs %d\n", conf->getNumArgs());
 //			const Expr ** args;
@@ -253,7 +278,7 @@ public:
 		Matcher.addMatcher(clang::ast_matchers::CUDAKernelCallExpr().bind("CUDA_kernel_callExpr"),KCH);
 
 		//DEBUG
-		printf("ASTConsumer: added matchers\n");
+		//printf("ASTConsumer: added matchers\n");
 
 	}
 
