@@ -58,10 +58,19 @@ public:
 
 		Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
 		SourceLocation loc = firstDecl->getLocation();
-		const FileID fid = SM->getFileID(loc);
-		//fid.
+		SourceLocation sloc = SM->getSpellingLoc(loc);
 
-		if(fid != SM->getMainFileID()){
+		std::cout << "loc " << loc.printToString(*SM) << "\n";
+		std::cout << "sloc " << sloc.printToString(*SM) << "\n";
+
+		//TODO bug when including header with the kernel definitions
+		// (and probably all the attributed functions)
+		// FIXable using cuda_runtime.h (seems like) but then another bug arises
+		// because of some headers inclusions (happens only with our tools, not
+		// using clang natively and dumping the asts)
+		std::cout << SM->getFilename(loc).str() << "\n";
+
+		if(SM->getFileID(loc) != SM->getMainFileID() && SM->getFileID(sloc) != SM->getMainFileID()){
 			std::cout << "Skipping file " << loc.printToString(*SM) << "\n";
 			return true;
 		}
