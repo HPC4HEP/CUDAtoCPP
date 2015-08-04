@@ -12,6 +12,7 @@ typedef struct {
     unsigned int x, y, z;
 } uint3;
 
+//typedef or not?
 struct dim3 {
   unsigned int x, y, z;
   __host__ __device__ dim3(unsigned x, unsigned y = 1, unsigned z = 1)
