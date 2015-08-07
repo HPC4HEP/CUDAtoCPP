@@ -1,4 +1,6 @@
-__host__ void vecAdd(double *a, double *b, double *c, int n)
+//#include "/home/latzori/clang-llvm/build/lib/clang/3.7.0/include/stddef.h"
+
+__global__ void vecAdd(double *a, double *b, double *c, int n)
 {
 
 	
@@ -13,7 +15,7 @@ __host__ void vecAdd(double *a, double *b, double *c, int n)
 }
 
 int main(){
-{
+
   int n = 1000;
   double *h_a, *h_b, *h_c;
   double *d_a, *d_b, *d_c;

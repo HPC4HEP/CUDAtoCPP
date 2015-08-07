@@ -93,8 +93,7 @@ BUILDDIR := build
 .PHONY: all
 all: make_builddir \
 	emit_build_config \
-	$(BUILDDIR)/CUDARewriter \
-	$(BUILDDIR)/TopLevel
+	$(BUILDDIR)/CUDARewriter
 
 .PHONY: emit_build_config
 emit_build_config: make_builddir
@@ -105,10 +104,6 @@ make_builddir:
 	@test -d $(BUILDDIR) || mkdir $(BUILDDIR)
 		
 $(BUILDDIR)/CUDARewriter: $(SRCDIR)/CUDARewriter.cpp
-	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) $(CLANG_INCLUDES) $^ \
-		$(CLANG_LIBS) $(LLVM_LDFLAGS) -o $@
-		
-$(BUILDDIR)/TopLevel: $(SRCDIR)/TopLevel.cpp
 	$(CXX) $(CXXFLAGS) $(LLVM_CXXFLAGS) $(CLANG_INCLUDES) $^ \
 		$(CLANG_LIBS) $(LLVM_LDFLAGS) -o $@
 		

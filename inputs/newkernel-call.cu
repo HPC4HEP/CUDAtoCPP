@@ -1,12 +1,8 @@
-//#include "../../include/cuda_runtime.h"
+__host__ void f();
 
-__global__ void f();
 __global__ void g1(int x) {
-
-x++;
+	x++;
 }
-
-
 
 int main(void) {
   dim3 g(1,1,1);

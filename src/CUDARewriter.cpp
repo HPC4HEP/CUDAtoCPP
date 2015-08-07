@@ -1,10 +1,9 @@
 /*
  * CUDARewriter.cpp
  *
- *  Created on: 24/lug/2015
+ *  Created on: 24/jul/15
  *      Author: latzori
  */
-
 
 #include <string>
 #include <iostream>
@@ -41,307 +40,182 @@ using namespace clang::driver;
 using namespace clang::tooling;
 using namespace llvm::sys::path;
 
+//TODO this is mandatory?
 static llvm::cl::OptionCategory MatcherSampleCategory("Matcher Sample");
 
-class KernelDeclHandler : public MatchFinder::MatchCallback {
-public:
-	KernelDeclHandler(Rewriter &Rewrite, Preprocessor* PP) : Rewrite(Rewrite), PP(PP){}
-
-	virtual void run(const MatchFinder::MatchResult &Result){
-		clang::SourceManager* const SM = Result.SourceManager;
-		if (const clang::FunctionDecl * kerneldecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("CUDA_kernel_functionDecl")){
-			std::string SStr;
-			llvm::raw_string_ostream S(SStr);
-			kerneldecl->print(S);
-			//std::cout << "kerneldecl is " << S.str() << "\n";
-			if(CUDAGlobalAttr* gattr = kerneldecl->getAttr<CUDAGlobalAttr>()){
-				SourceLocation gattrloc = SM->getExpansionLoc(gattr->getLocation());
-				if(SM->getFileID(gattrloc) != SM->getMainFileID()){
-					//std::cout << "Skipped rewriting @ loc " << gattrloc.printToString(*SM) << ": FileID different from MainFileID\n";
-					//std::cout << S.str() << "\n";
-				} else {
-					SourceLocation gattrend = PP->getLocForEndOfToken(gattrloc);
-					SourceRange sr(gattrloc, gattrend);
-					Rewrite.ReplaceText(gattrloc, Rewrite.getRangeSize(sr),	"");
-				}
-			}
-		}
-	}
-private:
-	Rewriter &Rewrite;
-	Preprocessor* PP;
-};
-
-class AttributeHandler : public MatchFinder::MatchCallback {
-public:
-	AttributeHandler(Rewriter &Rewrite, Preprocessor* PP) : Rewrite(Rewrite), PP(PP){}
-
-	virtual void run(const MatchFinder::MatchResult &Result){
-		clang::SourceManager* const SM = Result.SourceManager;
-
-		//Deleting __host__ attribute
-		if(const clang::FunctionDecl * hostfunc = Result.Nodes.getNodeAs<clang::FunctionDecl>("CUDAHost_Attr_functionDecl")){
-
- 			std::string SStr;
-			llvm::raw_string_ostream S(SStr);
-			hostfunc->print(S);
-			//std::cout << "hostfunc is " << S.str() << "\n";
-			if(CUDAHostAttr* hattr = hostfunc->getAttr<CUDAHostAttr>()){
-				SourceLocation hattrloc = SM->getExpansionLoc(hattr->getLocation());
-				if(SM->getFileID(hattrloc) != SM->getMainFileID()){
-					//std::cout << "Skipped rewriting @ loc " << hattrloc.printToString(*SM) << ": FileID different from MainFileID\n";
-					//std::cout << S.str() << "\n";
-				} else {
-					SourceLocation hattrend = PP->getLocForEndOfToken(hattrloc);
-					SourceRange sr(hattrloc, hattrend);
-					Rewrite.ReplaceText(hattrloc, Rewrite.getRangeSize(sr),	"");
-				}
-			}
-		}
-
-		//Deleting __device__ attribute
-		if (const clang::FunctionDecl * devicefunc = Result.Nodes.getNodeAs<clang::FunctionDecl>("CUDADevice_Attr_functionDecl")){
-			std::string SStr2;
-			llvm::raw_string_ostream S2(SStr2);
-			devicefunc->print(S2);
-			//std::cout << "devicefunc is " << S2.str() << "\n";
-
-			if(CUDADeviceAttr* dattr = devicefunc->getAttr<CUDADeviceAttr>()){
-				SourceLocation dattrloc = SM->getExpansionLoc(dattr->getLocation());
-
-				if(SM->getFileID(dattrloc) != SM->getMainFileID()){
-					//std::cout << "Skipped rewriting @ loc " << dattrloc.printToString(*SM) << ": FileID different from MainFileID\n";
-					//std::cout << S2.str() << "\n";
-				} else {
-					SourceLocation dattrend = PP->getLocForEndOfToken(dattrloc);
-					SourceRange sr(dattrloc, dattrend);
-					Rewrite.ReplaceText(dattrloc, Rewrite.getRangeSize(sr),	"");
-				}
-			}
-		}
-
-		//And now we have to translate the body of the function!
-
-	}
-
-private:
-	Rewriter &Rewrite;
-	Preprocessor *PP;
-};
-
-class CUDAKCallHandler : public MatchFinder::MatchCallback {
-public:
-	CUDAKCallHandler(Rewriter &Rewrite, Preprocessor* PP) : Rewrite(Rewrite), PP(PP){}
-    //TODO: support the shared and stream exec-config parameters
-	virtual void run(const MatchFinder::MatchResult &Result){
-		clang::SourceManager* const SM = Result.SourceManager;
-
-		//Do i need the check on the file ID in this case?
-		if(const clang::CUDAKernelCallExpr * kernelCall = Result.Nodes.getNodeAs<clang::CUDAKernelCallExpr>("CUDA_kernel_callExpr")){
-
-			std::cout << "\n\nDEBUG: found a kernel call!\n";
-
-			//Name of the kernel function
-			const FunctionDecl* dircallee = kernelCall->getDirectCallee(); //Refers to the kernel def!
-
-			std::cout << "getDirectCallee: " << dircallee->getNameAsString();
-			std::cout << " (starts at loc " << dircallee->getLocStart().printToString(*SM) << " )\n";
-
-			//The kernel config is the <<<,>>> stuff
-	        const CallExpr *kernelConfig = kernelCall->getConfig();
-	        const Expr* grid = kernelConfig->getArg(0);
-	        const Expr* block = kernelConfig->getArg(1);
-
-	        //TEST Rewrite the threadblock expression
-	        const CXXConstructExpr *construct = dyn_cast<CXXConstructExpr>(block);
-	        const ImplicitCastExpr *cast = dyn_cast<ImplicitCastExpr>(construct->getArg(0));
-
-	        //TODO: Check if all kernel launch parameters now show up as MaterializeTemporaryExpr
-	    	// if so, standardize it as this with the ImplicitCastExpr fallback
-	    	if (cast == NULL) {
-	    		std::cout << "cast1 == NULL";
-	    	    //try chewing it up as a MaterializeTemporaryExpr
-	    	    const MaterializeTemporaryExpr *mat = dyn_cast<MaterializeTemporaryExpr>(construct->getArg(0));
-	    	    if (mat) {
-	    	    	std::cout << ", mat != NULL";
-	    	    	cast = dyn_cast<ImplicitCastExpr>(mat->GetTemporaryExpr());
-	    	    } else {
-	    	    	std::cout << ", mat == NULL";
-	    	    }
-	    	    std::cout << "\n";
-	    	} else {
-	    		std::cout << "cast1 != NULL\n";
-	    	}
-	    	const DeclRefExpr *dre;
-			if (cast == NULL) {
-				std::cout << "cast2 == NULL, construct starts at loc "
-						  << construct->getLocStart().printToString(*SM)
-						  << "\n";
-				dre = dyn_cast<DeclRefExpr>(construct->getArg(0));
-			} else {
-				std::cout << "cast2 != NULL, construct starts at loc "
-						  << construct->getLocStart().printToString(*SM)
-						  << "\n";
-				dre = dyn_cast<DeclRefExpr>(cast->getSubExprAsWritten());
-			}
-			//Check if is something declared in advance or not!
-			if (dre) {
-				std::cout << "dre != NULL, ";
-				//Variable passed
-				const ValueDecl *value = dre->getDecl();
-				std::string type = value->getType().getAsString();
-				std::cout << "value's type is "<< type << "\n";
-				unsigned int dims = 1;
-				std::stringstream args;
-				//TODO: just test if including cuda runtime libraries it works differently than defining my own header!!!
-				if (type == "struct dim3") {
-					dims = 3;
-					for (unsigned int i = 0; i < 3; i++)
-						std::cout << "value[" << i << "] = " << value->getNameAsString() << " | "<< value->getName().str() << "\n\n";
-
-						//args << "localWorkSize[" << i << "] = " << value->getNameAsString() << "[" << i << "];\n";
-				} else {
-					//Some integer type, likely
-				    SourceLocation a(SM->getExpansionLoc(dre->getLocStart())), b(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(dre->getLocEnd())), 0,  *SM, Result.Context->getLangOpts()));
-				    std::string boh = std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
-					std::cout << "value is "<< boh << "\n\n";
-				    //args << "localWorkSize[0] = " << boh << ";\n";
-				}
-				//std::cout << args.str() << "\n";
-			} else {
-				//Some other expression passed to block
-				const Expr *arg = cast->getSubExprAsWritten();
-				//std::string s;
-				std::cout << "dre == NULL";
-				std::cout << " (arg starts at loc: " << arg->getExprLoc().printToString(*SM) << ")\n\n";
-//				RewriteHostExpr(arg, s);
-			}
-//			const CallExpr* conf = kcall->getConfig();
-//			printf("kernel call nargs %d\n", conf->getNumArgs());
-//			const Expr ** args;
-//			args = malloc(conf->getNumArgs()*sizeof(const Expr*));
-//			for(int i = 0; i < conf->getNumArgs(); i++){
-//				args[i] = conf->getArg(i);
-//
-//				conf->
-//			}
-
-			//PARAMETERS:
-			/*
-			 * we want to move blocksize, blockidx & gridsize from the cuda kernel config to both the formal (new) kernel definition and actual
-			 * (new) kernel call parameters.
-			 *
-			 * Is it possible to get the function definition from the kernel call?
-			 * is it needed actually? should we find a standard for the parameter positions?
-			 * example:
-			 *
-			 * CUDA:
-			 * __global__ void ker(T a, Tb){}
-			 * ...
-			 * ker<<<grid, block>>>(aa, bb);
-			 *
-			 * becomes
-			 * C++:
-			 * void ker(T a, T b, dim3 gridSize, dim3 blockSize, dim3 blockIdx){}
-			 * ...
-			 * ker(aa, bb, grid, block, ???);
-			 *
-			 */
-		}
-	}
-private:
-	Rewriter &Rewrite;
-	Preprocessor *PP;
-
-};
-/**
-*
-* Our attempt is to write only matchers for entry points, and then
-* recursively call more specific functions from the handlers!
-*
-* TODO list:
-* - definizioni di kernel (dopo traduco il body)
-* - definizioni di funzioni con attributi __device__ o __host__ (rimuovo
-* 	l'attributo e poi traduco il body)
-* - il main come lo tratto? perché dentro avrò sintassi cuda...
-*
-*/
 class MyASTConsumer : public ASTConsumer {
 public:
-	MyASTConsumer(CompilerInstance *comp, Rewriter &R) : CI(comp)  {
+	MyASTConsumer(CompilerInstance *comp, Rewriter *R) : ASTConsumer(), CI(comp), Rew(R){ }
+	virtual ~MyASTConsumer() { }
 
-		//Preprocessor
-		Preprocessor* P = &CI->getPreprocessor();
-
-		//Initialize all the handlers!
-		AH = new AttributeHandler(R, P);
-		KDH = new KernelDeclHandler(R, P);
-		KCH = new CUDAKCallHandler(R, P);
-
-		//Matches all the function declarations with an __host__ attribute
-		Matcher.addMatcher(
-				functionDecl(
-						hasAttr(
-								clang::attr::CUDAHost
-								)
-						).bind("CUDAHost_Attr_functionDecl"),
-				AH);
-
-		//Matches all the function declarations with a __device__ attribute
-		Matcher.addMatcher(
-				functionDecl(
-						hasAttr(
-								clang::attr::CUDADevice
-								)
-						).bind("CUDADevice_Attr_functionDecl"),
-				AH);
-
-		//Matches all the function declarations with a __global__ attribute (kernels?)
-		Matcher.addMatcher(
-				functionDecl(
-						hasAttr(
-								clang::attr::CUDAGlobal
-								)
-						).bind("CUDA_kernel_functionDecl"),
-				KDH);
-
-		Matcher.addMatcher(clang::ast_matchers::CUDAKernelCallExpr().bind("CUDA_kernel_callExpr"),KCH);
-
-		//DEBUG
-		//printf("ASTConsumer: added matchers\n");
-
+	virtual void Initialize(ASTContext &Context) {
+		SM = &Context.getSourceManager();
+		LO = &CI->getLangOpts();
+		PP = &CI->getPreprocessor();
+		//Rew.setSourceMgr(*SM, *LO);
+		//PP->addPPCallbacks(new RewriteIncludesCallback(this));
 	}
 
-	// Run the matchers when we have the whole TU parsed.
-	void HandleTranslationUnit(ASTContext &Context) override {
-		Matcher.matchAST(Context);
-
-	}
-
-	//Triggered for each globally scoped declaration.
 	virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
+
 		Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
-		SourceLocation loc = firstDecl->getLocation();
-		if(CI->getSourceManager().getFileID(loc) != CI->getSourceManager().getMainFileID()){
-			std::cout << "Skipping file " << loc.printToString(CI->getSourceManager()) << "\n";
-			return true;
+		//SourceLocation loc = firstDecl->getLocation();
+		SourceLocation sloc = SM->getSpellingLoc(firstDecl->getLocation());
+
+		//std::cout << "loc " << loc.printToString(*SM) << "\n";
+		//std::cout << "sloc " << sloc.printToString(*SM) << "\n";
+
+		//Don't use extern in the include files!!!
+//		std::cout << "loc " << loc.printToString(*SM) <<" (filename: " << SM->getFilename(loc).str() << ")\n";
+//		std::cout << "sloc " << sloc.printToString(*SM) <<" (filename: " << SM->getFilename(sloc).str() << ")\n";
+		//SM->getFileID(loc) != SM->getMainFileID() &&
+//		std::cout << "MAIN ID " << SM->getMainFileID().getHashValue();
+//		std::cout << " our ID " << SM->getFileID(loc).getHashValue();
+//		std::cout << " our s ID " << SM->getFileID(sloc).getHashValue() << "\n";
+
+		// Checking which file we are scanning (same as isFromMainFile property, now deprecated???)
+		if( SM->getFileID(sloc) != SM->getMainFileID()){
+//			std::cout << "FileID mismatch (Skipped rewrite)\n";
+			return true; //Just skip the loc (TODO skip the file?) but continue parsing
 		}
-		std::cout << loc.printToString(CI->getSourceManager()) << " --> Action required!\n";
-		return true;
-	}
+
+		std::cout << "NEW DECL: " << sloc.printToString(*SM) << "\n";
+
+		//FROM CU2CL
+        //Walk declarations in group and rewrite
+        for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
+//        	std::cout << "DEBUG: Analyzing decl " << i << "\n"; //TODO need integer index
+            if (DeclContext *dc = dyn_cast<DeclContext>(*i)) {
+            	std::cout << "DEBUG: DeclContext dc \n";
+                //Basically only handles C++ member functions
+                for (DeclContext::decl_iterator di = dc->decls_begin(), de = dc->decls_end(); di != de; ++di) {
+                    if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*di)) {
+                    	std::cout << "DEBUG: FunctionDecl fd inside dc\n";
+                        //prevent implicitly defined functions from being rewritten
+                    	// (since there's no source to rewrite..)
+                        if (!fd->isImplicit()) {
+                        	std::cout << "DEBUG: fd->isImplicit = false (Action required)\n";
+                            RewriteHostFunction(fd);
+//                            RemoveFunction(fd, KernelRewrite);
+//                        	if (fd->getNameAsString() == MainFuncName) {
+//                                RewriteMain(fd);
+//                            }
+                        } else {
+                            std::cout << "DEBUG: fd->isImplicit = true (Skipped rewrite)\n";
+                        }
+                    }
+                }
+            }
+            //Handles globally defined C or C++ functions
+            if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*i)) {
+            	std::cout << "DEBUG: FunctionDecl fd\n";
+            	//Don't translate explicit template specializations
+                if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
+                    if (fd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>()) {
+                    	std::cout << "DEBUG: Global and/or Device attrs (Action required)\n";
+                    	//Device function, so rewrite kernel
+//                        RewriteKernelFunction(fd);
+                        if (fd->hasAttr<CUDAHostAttr>()){
+                        	std::cout << "DEBUG: Also Host attr (Action required)\n";
+                            //Also a host function, so rewrite host
+//                            RewriteHostFunction(fd);
+                        } else {
+                        	std::cout << "DEBUG: Only device, remove from host?\n";
+                            //Simply a device function, so remove from host
+//                            RemoveFunction(fd, HostRewrite);
+                        }
+                    } else {
+                    	std::cout << "DEBUG: Only host function (Action required)\n";
+                        //Simply a host function, so rewrite
+                        RewriteHostFunction(fd);
+//                        if (CUDAHostAttr *attr = fd->getAttr<CUDAHostAttr>()) {
+//                        	std::cout << "DEBUG: Found CUDAHostAttr...";
+//                            SourceLocation instLoc = SM->getExpansionLoc(attr->getLocation());
+//                            std::cout << " at loc " << instLoc.printToString(*SM);
+//                            SourceRange realRange(instLoc, PP->getLocForEndOfToken(instLoc));
+//                            std::cout << " ending at " << PP->getLocForEndOfToken(instLoc).printToString(*SM);
+//                            Rew->ReplaceText(instLoc, Rew->getRangeSize(realRange), "");
+//                            std::cout << " Removed!\n";
+//                        }
+                        //and remove from kernel
+//                        RemoveFunction(fd, KernelRewrite);
+
+//                        if (fd->getNameAsString() == MainFuncName) {
+//                            RewriteMain(fd);
+//                        }
+                    }
+                } else {
+                    if (fd->getTemplateSpecializationInfo())
+                    	std::cout << "DEBUG: fd->getTemplateSpecializationInfo = true (Skip?)\n";
+                    else
+                    	std::cout << "DEBUG: Non-rewriteable function without TemplateSpecializationInfo detected?\n";
+                }
+            } else if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
+            	std::cout << "DEBUG: VarDecl vd\n";
+//                RemoveVar(vd, KernelRewrite);
+//                RewriteHostVarDecl(vd);
+            //Rewrite Structs here
+            //Ideally, we should keep the expression inside parentheses ie __align__(<keep this>)
+            // and just wrap it with __attribute__((aligned (<kept Expr>)))
+            //TODO: Finish struct attribute translation
+        	} else if (RecordDecl * rd = dyn_cast<RecordDecl>(*i)) {
+        		std::cout << "DEBUG: RecordDecl rd\n";
+                if (rd->hasAttrs()) {
+                	std::cout << "DEBUG: rd->hasAttrs = true (action required)\n";
+                    for (Decl::attr_iterator at = rd->attr_begin(), at_e = rd->attr_end(); at != at_e; ++at) {
+                        if (AlignedAttr *align = dyn_cast<AlignedAttr>(*at)) {
+                            if (!align->isAlignmentDependent()) {
+                                llvm::errs() << "Found an aligned struct of size: " << align->getAlignment(rd->getASTContext()) << " (bits)\n";
+                            } else {
+                                llvm::errs() << "Found a dependent alignment expresssion\n";
+                            }
+                        } else {
+                            llvm::errs() << "Found other attrib\n";
+                        }
+                    }
+                }
+            }
+            //TODO rewrite type declarations
+        }
+        return true;
+}
 
 private:
-	MatchFinder Matcher;
+    CompilerInstance *CI;
+    SourceManager *SM;
+    LangOptions *LO;
+    Preprocessor *PP;
+    Rewriter *Rew;
 
-	AttributeHandler *AH;
+    //Simple function to strip attributes from host functions that may be declared as
+    // both __host__ and __device__, then passes off to the host-side statement rewriter
+    void RewriteHostFunction(FunctionDecl *hostFunc) {
+    	//Remove any CUDA function attributes
+        if (CUDAHostAttr *attr = hostFunc->getAttr<CUDAHostAttr>()) {
+        	std::cout << "DEBUG: HostAttr rewriting attempt\n";
+            RewriteAttr(attr, "", *Rew);
+        }
+        if (CUDADeviceAttr *attr = hostFunc->getAttr<CUDADeviceAttr>()) {
+            RewriteAttr(attr, "", *Rew);
+        }
 
-	KernelDeclHandler *KDH;
+        //Rewrite the body
+        if (Stmt *body = hostFunc->getBody()) {
+            RewriteHostStmt(body);
+        }
+        //CurVarDeclGroups.clear();
+    }
 
-	CUDAKCallHandler *KCH;
+    void RewriteHostStmt(Stmt *s) {}
+    bool RewriteHostExpr(Expr *e, std::string &newExpr) {}
 
-	//Preprocessor* PP;
-	CompilerInstance *CI;
-
+    //The workhorse that takes the constructed replacement attribute and inserts it in place of the old one
+    void RewriteAttr(Attr *attr, std::string replace, Rewriter &rewrite){
+    	std::cout << "DEBUG: RewriteAttr\n";
+        SourceLocation instLoc = SM->getExpansionLoc(attr->getLocation());
+        SourceRange realRange(instLoc, PP->getLocForEndOfToken(instLoc));
+        rewrite.ReplaceText(instLoc, rewrite.getRangeSize(realRange), replace);
+    }
 };
 
 // For each source file provided to the tool, a new FrontendAction is created.
@@ -349,14 +223,12 @@ class MyFrontendAction : public ASTFrontendAction {
 public:
   MyFrontendAction() {}
   void EndSourceFileAction() override {
-    TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID())
-        .write(llvm::outs());
+    TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
   }
 
-  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
-                                                 StringRef file) override {
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
     TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-    return llvm::make_unique<MyASTConsumer>(&CI, TheRewriter);
+    return llvm::make_unique<MyASTConsumer>(&CI, &TheRewriter);
   }
 
 private:
@@ -369,4 +241,3 @@ int main(int argc, const char **argv) {
 
   return Tool.run(newFrontendActionFactory<MyFrontendAction>().get());
 }
-

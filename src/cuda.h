@@ -1,7 +1,7 @@
 /* Minimal declarations for CUDA support.  Testing purposes only. */
 
 //#include <stddef.h>
-#include "/home/latzori/clang-llvm/build/lib/clang/3.7.0/include/stddef.h"
+//#include "/home/latzori/clang-llvm/build/lib/clang/3.7.0/include/stddef.h"
 
 #define __constant__ __attribute__((constant))
 #define __device__ __attribute__((device))
