@@ -1,6 +1,5 @@
 #!/bin/bash
-#BIN=build/CUDARewriter
-BIN=build/TopLevel
+BIN=build/CUDARewriter
 
 ##It doesn't seem to work including the cuda header... clang generates the ast, but our tool doesn't :(
 #HEADER=src/cuda.h
