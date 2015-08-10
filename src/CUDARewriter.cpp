@@ -87,7 +87,7 @@ public:
                 //Basically only handles C++ member functions
                 for (DeclContext::decl_iterator di = dc->decls_begin(), de = dc->decls_end(); di != de; ++di) {
                     if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*di)) {
-                    	std::cout << "\t\tFunctionDecl fd\n";
+                    	std::cout << "\t\tFunctionDecl1 fd\n";
                         //prevent implicitly defined functions from being rewritten
                     	// (since there's no source to rewrite..)
                         if (!fd->isImplicit()) {
@@ -103,9 +103,9 @@ public:
                     }
                 }
             }
-            //Handles globally defined C or C++ functions
+            //Handles globally defined C or C++ functions (or CUDA)
             if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*i)) {
-            	std::cout << "\tFunctionDecl fd\n";
+            	std::cout << "\tFunctionDecl2 fd\n";
             	//TODO: Don't translate explicit template specializations
             	//fixme ignoring templates for now
 //                if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
@@ -376,10 +376,14 @@ private:
     bool RewriteHostExpr(Expr *e, std::string &newExpr) {
 		SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
     	std::cout << "RewriteHostExpr e: " << sloc.printToString(*SM) << "\n";
+
+        SourceRange realRange(SM->getExpansionLoc(e->getLocStart()),
+                              SM->getExpansionLoc(e->getLocEnd()));
+
         if (clang::CUDAKernelCallExpr *kce = dyn_cast<clang::CUDAKernelCallExpr>(e)) {
         	std::cout << "\tCUDAKernelCallExpr kce\n";
         	newExpr = RewriteCUDAKernelCall(kce);
-        	return true;
+        	//return true;
         } else if  (CallExpr *ce = dyn_cast<CallExpr>(e)) {
         	if (ce->getDirectCallee()->getNameAsString().find("cuda") == 0)
         		std::cout << "\tCallExpr ce "<< ce->getDirectCallee()->getNameAsString() << "\n";
@@ -415,7 +419,7 @@ private:
                 ret = true;
             }
         }
-
+        Rew->ReplaceText(realRange, newExpr);
 
 //        SourceRange newrealRange(SM->getExpansionLoc(e->getLocStart()),
 //                              SM->getExpansionLoc(e->getLocEnd()));
@@ -429,7 +433,24 @@ private:
         CallExpr *kernelConfig = kernelCall->getConfig();
         Expr *grid = kernelConfig->getArg(0);
         Expr *block = kernelConfig->getArg(1);
-        return "";
+        FunctionDecl* callee = kernelCall->getDirectCallee();
+//        std::cout << PrintDeclToString(callee) << "\n"; //
+//        std::cout << getStmtText(kernelCall) << "\n";
+//        std::cout << getStmtText(kernelCall->getCallee()) << "\n";
+//        std::cout << getStmtText(block) << "\n"; //g
+//        std::cout << getStmtText(kernelCall->getArg(0)) << "\n"; //42
+//
+//        //General rule?
+//        std::cout << "TRANSLATION\n";
+        std::string SStr;
+        llvm::raw_string_ostream S(SStr);
+        S << getStmtText(kernelCall->getCallee()) << "(";
+        for(int i = 0; i < kernelCall->getNumArgs(); i++){
+        	S << getStmtText(kernelCall->getArg(i)) << ", ";
+        }
+        //std::cout << getStmtText(kernelCall->getArg(kernelCall->getNumArgs()-1)) << "
+        S << getStmtText(grid) << ", " << getStmtText(block) << ")";
+        return S.str();
     }
 
     bool RewriteCUDACall(CallExpr *cudaCall, std::string &newExpr) {
@@ -449,6 +470,29 @@ private:
         SourceRange realRange(instLoc, PP->getLocForEndOfToken(instLoc));
         rewrite.ReplaceText(instLoc, rewrite.getRangeSize(realRange), replace);
     }
+
+
+    std::string getStmtText(Stmt *s) {
+        SourceLocation a(SM->getExpansionLoc(s->getLocStart())), b(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(s->getLocEnd())), 0,  *SM, *LO));
+        return std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
+    }
+
+    //DEPRECATED: Old method to get the string representation of a Stmt
+       std::string PrintStmtToString(Stmt *s) {
+           std::string SStr;
+           llvm::raw_string_ostream S(SStr);
+           s->printPretty(S, 0, PrintingPolicy(*LO));
+           return S.str();
+       }
+
+       //DEPRECATED: Old method to get the string representation of a Decl
+       //TODO: Test replacing the one remaining usage in HandleTranslationUnit with getStmtText
+       std::string PrintDeclToString(Decl *d) {
+           std::string SStr;
+           llvm::raw_string_ostream S(SStr);
+           d->print(S);
+           return S.str();
+       }
 };
 
 // For each source file provided to the tool, a new FrontendAction is created.

@@ -1,7 +1,7 @@
 #!/bin/bash
 BIN=build/CUDARewriter
 
-##It doesn't seem to work including the cuda header... clang generates the ast, but our tool doesn't :(
+#CUDA headers
 #HEADER=src/cuda.h
 #HEADER=src/cuda2.h
 HEADER=../include/cuda_runtime.h
