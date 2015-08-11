@@ -40,7 +40,7 @@ using namespace clang::driver;
 using namespace clang::tooling;
 using namespace llvm::sys::path;
 
-//TODO this is mandatory?
+//TODO Is this mandatory?
 static llvm::cl::OptionCategory MatcherSampleCategory("Matcher Sample");
 
 class MyASTConsumer : public ASTConsumer {
@@ -52,79 +52,67 @@ public:
 		SM = &Context.getSourceManager();
 		LO = &CI->getLangOpts();
 		PP = &CI->getPreprocessor();
-		//PP->addPPCallbacks(new RewriteIncludesCallback(this));
 	}
 
 	virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
 
 		Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
+		//TODO what's the difference between SpellingLoc and Loc?
 		//SourceLocation loc = firstDecl->getLocation();
 		SourceLocation sloc = SM->getSpellingLoc(firstDecl->getLocation());
 
-		//std::cout << "loc " << loc.printToString(*SM) << "\n";
-		//std::cout << "sloc " << sloc.printToString(*SM) << "\n";
-
-		//Don't use extern in the include files!!!
-//		std::cout << "loc " << loc.printToString(*SM) <<" (filename: " << SM->getFilename(loc).str() << ")\n";
-//		std::cout << "sloc " << sloc.printToString(*SM) <<" (filename: " << SM->getFilename(sloc).str() << ")\n";
-		//SM->getFileID(loc) != SM->getMainFileID() &&
-//		std::cout << "MAIN ID " << SM->getMainFileID().getHashValue();
-//		std::cout << " our ID " << SM->getFileID(loc).getHashValue();
-//		std::cout << " our s ID " << SM->getFileID(sloc).getHashValue() << "\n";
-
-		// Checking which file we are scanning (same as isFromMainFile property, now deprecated???)
-		if( SM->getFileID(sloc) != SM->getMainFileID()){
-//			std::cout << "FileID mismatch (Skipped rewrite)\n";
-			return true; //Just skip the loc (TODO skip the file?) but continue parsing
+		/*  Checking which file we are scanning.
+		 *  We skip everything apart from the main file.
+		 *  TODO: Rewriting some includes?
+		 *  FIXME: "extern" keyword in #defines could cause problems
+		 */
+		if( SM->getFileID(sloc) != SM->getMainFileID()){ //FileID mismatch
+			return true; //Just skip the loc but continue parsing. TODO: Can I skip the whole file?
 		}
 
-		std::cout << "HandleTopLevelDecl: " << sloc.printToString(*SM) << "\n";
+		//DEBUG std::cout << "HandleTopLevelDecl: " << sloc.printToString(*SM) << "\n";
 
         //Walk declarations in group and rewrite
         for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
             if (DeclContext *dc = dyn_cast<DeclContext>(*i)) {
-            	std::cout << "\tDeclContext dc\n";
+            	//DEBUG std::cout << "\tDeclContext dc\n";
                 //Basically only handles C++ member functions
                 for (DeclContext::decl_iterator di = dc->decls_begin(), de = dc->decls_end(); di != de; ++di) {
                     if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*di)) {
-                    	std::cout << "\t\tFunctionDecl1 fd\n";
-                        //prevent implicitly defined functions from being rewritten
-                    	// (since there's no source to rewrite..)
+                    	//DEBUG std::cout << "\t\tFunctionDecl1 fd\n";
+                    	//Prevent implicitly defined functions from being rewritten (since there's no source to rewrite..)
                         if (!fd->isImplicit()) {
-                        	std::cout << "\t\t\tfd->isImplicit = false\n";
+                        	//DEBUG std::cout << "\t\t\tfd->isImplicit = false\n";
+                        	//TODO: What case applies here? Simply removing those kind of functions?
                             RewriteHostFunction(fd);
-//                            RemoveFunction(fd, KernelRewrite);
-//                        	if (fd->getNameAsString() == MainFuncName) {
-//                                RewriteMain(fd);
-//                            }
                         } else {
-                            std::cout << "\t\t\tfd->isImplicit = true (skip)\n";
+                        	//DEBUG std::cout << "\t\t\tfd->isImplicit = true (skip)\n";
                         }
                     }
                 }
             }
-            //Handles globally defined C or C++ functions (or CUDA)
+            //Handles globally defined functions
             if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*i)) {
-            	std::cout << "\tFunctionDecl2 fd\n";
+            	//DEBUG std::cout << "\tFunctionDecl2 fd\n";
             	//TODO: Don't translate explicit template specializations
-            	//fixme ignoring templates for now
-//                if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
+            	//fixme Ignoring templates for now
+            	//if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
                     if (fd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>()) {
-                    	std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = true\n";
+                    	//DEBUG std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = true\n";
                     	//Device function, so rewrite kernel
                         RewriteKernelFunction(fd);
                         if (fd->hasAttr<CUDAHostAttr>()){
-                        	std::cout << "\t\t\tfd->hasAttr<CUDAHostAttr>() = true\n";
-                            //Also a host function, so rewrite host
+                        	//DEBUG std::cout << "\t\t\tfd->hasAttr<CUDAHostAttr>() = true\n";
+                            //Also a host function, so rewrite host?
                             RewriteHostFunction(fd);
                         } else {
-                        	std::cout << "\t\t\tfd->hasAttr<CUDAHostAttr>() = false\n";
-                            //Simply a device function, so remove from host
-//                            RemoveFunction(fd, HostRewrite);
+                        	//DEBUG std::cout << "\t\t\tfd->hasAttr<CUDAHostAttr>() = false\n";
+                            //Simply a device function, so remove from host?
+                            //RemoveFunction(fd, HostRewrite);
                         }
                     } else {
-                    	std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = false\n";
-                        //Simply a host function, so rewrite
+                    	//DEBUG std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = false\n";
+                        //Simply a host function, so rewrite...
                         RewriteHostFunction(fd);
 //                        if (CUDAHostAttr *attr = fd->getAttr<CUDAHostAttr>()) {
 //                        	std::cout << "DEBUG: Found CUDAHostAttr...";
@@ -135,31 +123,33 @@ public:
 //                            Rew->ReplaceText(instLoc, Rew->getRangeSize(realRange), "");
 //                            std::cout << " Removed!\n";
 //                        }
-                        //and remove from kernel
+                        //...and remove from kernel?
 //                        RemoveFunction(fd, KernelRewrite);
 
 //                        if (fd->getNameAsString() == MainFuncName) {
 //                            RewriteMain(fd);
 //                        }
                     }
+                  //Templates again.
 //                } else {
 //                    if (fd->getTemplateSpecializationInfo())
 //                    	std::cout << "DEBUG: fd->getTemplateSpecializationInfo = true (Skip?)\n";
 //                    else
 //                    	std::cout << "DEBUG: Non-rewriteable function without TemplateSpecializationInfo detected?\n";
 //                }
+            //Globally defined variables
             } else if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-            	std::cout << "\tVarDecl vd\n";
-//                RemoveVar(vd, KernelRewrite);
+            	//DEBUG std::cout << "\tVarDecl vd\n";
+                //RemoveVar(vd, KernelRewrite);
                 RewriteHostVarDecl(vd);
             //Rewrite Structs here
             //Ideally, we should keep the expression inside parentheses ie __align__(<keep this>)
             // and just wrap it with __attribute__((aligned (<kept Expr>)))
             //TODO: Finish struct attribute translation
         	} else if (RecordDecl * rd = dyn_cast<RecordDecl>(*i)) {
-        		std::cout << "\tRecordDecl rd\n";
+        		//DEBUG std::cout << "\tRecordDecl rd\n";
                 if (rd->hasAttrs()) {
-                	std::cout << "\t\trd->hasAttrs = true\n";
+                	//DEBUG std::cout << "\t\trd->hasAttrs = true\n";
 //                    for (Decl::attr_iterator at = rd->attr_begin(), at_e = rd->attr_end(); at != at_e; ++at) {
 //                        if (AlignedAttr *align = dyn_cast<AlignedAttr>(*at)) {
 //                            if (!align->isAlignmentDependent()) {
@@ -175,7 +165,6 @@ public:
             }
             //TODO rewrite type declarations
         }
-        std::cout <<"\n";
         return true;
 }
 
@@ -186,114 +175,141 @@ private:
     Preprocessor *PP;
     Rewriter *Rew;
 
-    //Simple function to strip attributes from host functions that may be declared as
-    // both __host__ and __device__, then passes off to the host-side statement rewriter
+    /*
+     * Simple function to strip attributes from host functions that may be declared as
+     * both __host__ and __device__, then passes off to the host-side statement rewriter
+     */
     void RewriteHostFunction(FunctionDecl *hostFunc) {
 		SourceLocation sloc = SM->getSpellingLoc(hostFunc->getLocation());
-    	std::cout << "RewriteHostFunction hostFunc: " << sloc.printToString(*SM) << "\n";
+		//DEBUG std::cout << "RewriteHostFunction hostFunc: " << sloc.printToString(*SM) << "\n";
     	//Remove any CUDA function attributes
         if (CUDAHostAttr *attr = hostFunc->getAttr<CUDAHostAttr>()) {
-        	std::cout << "\thostFunc->hasAttr<CUDAHostAttr>() = true\n";
+        	//DEBUG std::cout << "\thostFunc->hasAttr<CUDAHostAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
         if (CUDADeviceAttr *attr = hostFunc->getAttr<CUDADeviceAttr>()) {
-        	std::cout << "\thostFunc->hasAttr<CUDADeviceAttr>() = true\n";
+        	//DEBUG std::cout << "\thostFunc->hasAttr<CUDADeviceAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
 
         //Rewrite the body
         if (Stmt *body = hostFunc->getBody()) {
-        	std::cout << "\thostFunc->hasBody() = true\n";
+        	//DEBUG std::cout << "\thostFunc->hasBody() = true\n";
             RewriteHostStmt(body);
         }
-        //CurVarDeclGroups.clear();
     }
 
+    //Dispatching between expressions, declarations and other statements
     void RewriteHostStmt(Stmt *s) {
-    	std::cout << "RewriteHostStmt s: ";
+    	//DEBUG std::cout << "RewriteHostStmt s: ";
         if (Expr *e = dyn_cast<Expr>(s)) {
-        	SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-        	std::cout << "<Expr> " << sloc.printToString(*SM) << "\n";
+        	//DEBUG SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
+        	//DEBUG std::cout << "<Expr> " << sloc.printToString(*SM) << "\n";
         	std::string str;
-        	RewriteHostExpr(e, str);
+        	if (RewriteHostExpr(e, str)) ReplaceStmtWithText(e, str, *Rew);
         }
         else if (DeclStmt *ds = dyn_cast<DeclStmt>(s)) {
-        	SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
-        	std::cout << "<DeclStmt> " << sloc.printToString(*SM) << "\n";
+        	//DEBUG SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
+        	//DEBUG std::cout << "<DeclStmt> " << sloc.printToString(*SM) << "\n";
         	DeclGroupRef DG = ds->getDeclGroup();
 			Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
             for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
                 if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-                	std::cout << "\tVarDecl vd\n";
+                	//DEBUG std::cout << "\tVarDecl vd\n";
                     RewriteHostVarDecl(vd);
                 }
             }
         } else {
             //Traverse children and recurse
             for (Stmt::child_iterator CI = s->child_begin(), CE = s->child_end(); CI != CE; ++CI) {
-            	std::cout << "children!\n";
+            	//DEBUG std::cout << "children!\n";
                 if (*CI) RewriteHostStmt(*CI);
             }
         }
     }
 
     void RewriteKernelFunction(FunctionDecl* kf) {
-		SourceLocation sloc = SM->getSpellingLoc(kf->getLocation());
-    	std::cout << "RewriteKernelFunction kf: " << sloc.printToString(*SM) << "\n";
-    	if (kf->hasAttr<CUDAGlobalAttr>()) {
-    		std::cout << "\tkf->hasAttr<CUDAGlobalAttr>() = true\n";
-        	//Means host callable
-        }
+    	//DEBUG: SourceLocation sloc = SM->getSpellingLoc(kf->getLocation());
+    	//DEBUG: std::cout << "RewriteKernelFunction kf: " << sloc.printToString(*SM) << "\n";
+
         if (CUDAGlobalAttr *attr = kf->getAttr<CUDAGlobalAttr>()) {
-    		std::cout << "\tkf->hasAttr<CUDAGlobalAttr>() = true\n";
+        	//DEBUG std::cout << "\tkf->hasAttr<CUDAGlobalAttr>() = true\n";
     		RewriteAttr(attr, "", *Rew);
         }
         if (CUDADeviceAttr *attr = kf->getAttr<CUDADeviceAttr>()) {
-    		std::cout << "\tkf->hasAttr<CUDADeviceAttr>() = true\n";
+        	//DEBUG std::cout << "\tkf->hasAttr<CUDADeviceAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
 
         if (CUDAHostAttr *attr = kf->getAttr<CUDAHostAttr>()) {
-    		std::cout << "\tkf->hasAttr<CUDAHostAttr>() = true\n";
+        	//DEBUG std::cout << "\tkf->hasAttr<CUDAHostAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
 
         //Rewrite formal parameters
-        for (FunctionDecl::param_iterator PI = kf->param_begin(), PE = kf->param_end(); PI != PE; ++PI) {
-        	std::cout << "\tParam! \n";
-            RewriteKernelParam(*PI, kf->hasAttr<CUDAGlobalAttr>());
-        }
+        //for (FunctionDecl::param_iterator PI = kf->param_begin(), PE = kf->param_end(); PI != PE; ++PI) {
+        	//DEBUG std::cout << "\tParam! \n";
+        	//std::cout << kf->getParamDecl(0)->getType().getAsString() << kf->getParamDecl(0)->getQualifiedNameAsString() << "\n";
+        	//kf->getParamDecl(0)->getQualifiedNameAsString()
+//            RewriteKernelParam(*PI, kf->hasAttr<CUDAGlobalAttr>());
+        //}
 
+        //Parameter Rewriting for a kernel
+    	if (kf->hasAttr<CUDAGlobalAttr>()) {
+    		//fixme doens't enters here, why?
+    		//DEBUG std::cout << "\tkf->hasAttr<CUDAGlobalAttr>() = true\n";
+        	//Means host callable
+    		std::string SStr;
+			llvm::raw_string_ostream S(SStr);
+			S << kf->getCallResultType().getAsString() << " " << kf->getNameAsString() << "(";
+			for( int j = 0; j < kf->getNumParams(); j++){
+				//TODO Check if this is a general rule
+				S << kf->getParamDecl(j)->getType().getAsString() << " " << kf->getParamDecl(0)->getQualifiedNameAsString() << ", ";
+			}
+			S << "dim3 blockDim, dim3 gridDim)";
+			//DEBUG: std::cout << S.str() << "\n";
+			SourceLocation start = SM->getExpansionLoc(kf->getLocStart());
+			SourceLocation end = PP->getLocForEndOfToken(SM->getExpansionLoc(kf->getParamDecl(kf->getNumParams()-1)->getLocEnd()));
+			SourceRange range(start, end);//PP->getLocForEndOfToken(instLoc));
+			Rew->ReplaceText(start, Rew->getRangeSize(range), S.str());
+
+
+        }
         if (kf->hasBody()) {
-        	std::cout << "\tkf->hasBody() = true\n";
+        	//DEBUG std::cout << "\tkf->hasBody() = true\n";
             RewriteKernelStmt(kf->getBody());
         }
 
 
     }
-    void RewriteKernelParam(ParmVarDecl *parmDecl, bool isFuncGlobal) {
-		SourceLocation sloc = SM->getSpellingLoc(parmDecl->getLocation());
-    	std::cout << "RewriteKernelParam parmDecl: " << sloc.printToString(*SM) << "\n";
-    }
+//    void RewriteKernelParam(ParmVarDecl *parmDecl, bool isFuncGlobal) {
+//    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(parmDecl->getLocation());
+//    	//DEBUG std::cout << "RewriteKernelParam parmDecl: " << sloc.printToString(*SM) << "\n";
+//    	//TODO Formal parameters transformation should happen here.
+//    	//	TODO add blockDim, gridDim, blockIdx?
+//
+//
+//    }
 
     void RewriteKernelStmt(Stmt *ks) {
-    	std::cout << "RewriteKernelStmt ks: ";
-    	 //Visit this node
+    	//DEBUG std::cout << "RewriteKernelStmt ks: ";
+        //Visit this node
 		if (Expr *e = dyn_cast<Expr>(ks)) {
-        	SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-        	std::cout << "<Expr> " << sloc.printToString(*SM) << "\n";
+			//DEBUG SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
+			//DEBUG std::cout << "<Expr> " << sloc.printToString(*SM) << "\n";
 			std::string str;
+			//FIXME it has to be shaped like this? Why RewriteKernelExpr() cannot just directly rewrite?
 			if (RewriteKernelExpr(e, str)) {
 				//ReplaceStmtWithText(e, str, KernelRewrite);
 			}
 		}
 		else if (DeclStmt *ds = dyn_cast<DeclStmt>(ks)) {
-        	SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
-        	std::cout << "<DeclStmt> " << sloc.printToString(*SM) << "\n";
+			//DEBUG SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
+			//DEBUG std::cout << "<DeclStmt> " << sloc.printToString(*SM) << "\n";
 			DeclGroupRef DG = ds->getDeclGroup();
 			for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
 				if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-                	std::cout << "\tVarDecl vd\n";
+					//DEBUG std::cout << "\tVarDecl vd\n";
 					RewriteKernelVarDecl(vd);
 				}
 				//TODO other non-top level declarations??
@@ -304,42 +320,49 @@ private:
 		else {
 			//Traverse children and recurse
 			for (Stmt::child_iterator CI = ks->child_begin(), CE = ks->child_end(); CI != CE; ++CI) {
-            	std::cout << "children!\n";
+				//DEBUG std::cout << "children!\n";
 				if (*CI) RewriteKernelStmt(*CI);
 			}
 		}
     }
 
     bool RewriteKernelExpr(Expr *e, std::string &newExpr) {
-		SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-    	std::cout << "RewriteKernelExpr e: " << sloc.printToString(*SM) << "\n";
+    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
+    	//DEBUG std::cout << "RewriteKernelExpr e: " << sloc.printToString(*SM) << "\n";
+    	//TODO Loop Fission algorithm (Stage 2) should be triggered here
+    	//TODO but how to see everything in the scope of the __syncthreads() expr?
+    	return true;
     }
 
     void RewriteKernelVarDecl(VarDecl *var) {
-		SourceLocation sloc = SM->getSpellingLoc(var->getLocation());
-    	std::cout << "RewriteKernelVarDecl var: " << sloc.printToString(*SM) << "\n";
+    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(var->getLocation());
+    	//DEBUG std::cout << "RewriteKernelVarDecl var: " << sloc.printToString(*SM) << "\n";
+    	//TODO Handle shared memory variables/pointers
         if (CUDASharedAttr *sharedAttr = var->getAttr<CUDASharedAttr>()) {
-        	std::cout << "\tvar->hasAttr<CUDASharedAttr>() = true\n";
+        	//DEBUG std::cout << "\tvar->hasAttr<CUDASharedAttr>() = true\n";
             RewriteAttr(sharedAttr, "", *Rew);
             if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){
-            	std::cout << "\t\tvar->hasAttr<CUDADeviceAttr>() = true\n";
+            	//DEBUG std::cout << "\t\tvar->hasAttr<CUDADeviceAttr>() = true\n";
             	RewriteAttr(devAttr, "", *Rew);
             }
             //TODO rewrite extern shared mem
             //if (var->isExtern())?
         }
+        //TODO Data buffering should be applied here (Stage 3)
+        //TODO How to recognize which kind of variables we want to "vectorize"?
+        //TODO How do we do it?
 
     }
 
     void RewriteHostVarDecl(VarDecl* var){
-		SourceLocation sloc = SM->getSpellingLoc(var->getLocation());
-    	std::cout << "RewriteHostVarDecl var: " << sloc.printToString(*SM) << "\n";
+    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(var->getLocation());
+    	//DEBUG std::cout << "RewriteHostVarDecl var: " << sloc.printToString(*SM) << "\n";
     	if (CUDAConstantAttr *constAttr = var->getAttr<CUDAConstantAttr>()) {
-        	std::cout << "\tvar->hasAttr<CUDAConstantAttr>() = true\n";
+    		//DEBUG std::cout << "\tvar->hasAttr<CUDAConstantAttr>() = true\n";
     		//TODO: Do something with __constant__ memory declarations
             RewriteAttr(constAttr, "", *Rew);
             if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){
-            	std::cout << "\t\tvar->hasAttr<CUDADeviceAttr>() = true\n";
+            	//DEBUG std::cout << "\t\tvar->hasAttr<CUDADeviceAttr>() = true\n";
             	RewriteAttr(devAttr, "", *Rew);
             }
 //            //DeviceMemVars.insert(var);
@@ -353,11 +376,11 @@ private:
 //            return;
         }
         else if (CUDASharedAttr *sharedAttr = var->getAttr<CUDASharedAttr>()) {
-        	std::cout << "\tvar->hasAttr<CUDASharedAttr>() = true\n";
+        	//DEBUG std::cout << "\tvar->hasAttr<CUDASharedAttr>() = true\n";
             //Handle __shared__ memory declarations
             RewriteAttr(sharedAttr, "", *Rew);
             if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){
-            	std::cout << "\t\ttvar->hasAttr<CUDADeviceAttr>() = true\n";
+            	//DEBUG std::cout << "\t\ttvar->hasAttr<CUDADeviceAttr>() = true\n";
             	RewriteAttr(devAttr, "", *Rew);
             }
 //            //TODO rewrite shared mem
@@ -366,7 +389,7 @@ private:
 //            SharedMemVars.insert(var);
         }
         else if (CUDADeviceAttr *attr = var->getAttr<CUDADeviceAttr>()) {
-        	std::cout << "\tvar->hasAttr<CUDADeviceAttr>() = true\n";
+        	//DEBUG std::cout << "\tvar->hasAttr<CUDADeviceAttr>() = true\n";
             //Handle __device__ memory declarations
             RewriteAttr(attr, "", *Rew);
             //TODO add to devmems, rewrite type
@@ -374,36 +397,44 @@ private:
     }
 
     bool RewriteHostExpr(Expr *e, std::string &newExpr) {
-		SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
+    	SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
     	std::cout << "RewriteHostExpr e: " << sloc.printToString(*SM) << "\n";
 
         SourceRange realRange(SM->getExpansionLoc(e->getLocStart()),
                               SM->getExpansionLoc(e->getLocEnd()));
 
+        //Rewriter used for rewriting subexpressions
+        Rewriter exprRewriter(*SM, *LO);
+
         if (clang::CUDAKernelCallExpr *kce = dyn_cast<clang::CUDAKernelCallExpr>(e)) {
-        	std::cout << "\tCUDAKernelCallExpr kce\n";
+        	//DEBUG std::cout << "\tCUDAKernelCallExpr kce\n";
         	newExpr = RewriteCUDAKernelCall(kce);
-        	//return true;
+        	return true;
         } else if  (CallExpr *ce = dyn_cast<CallExpr>(e)) {
-        	if (ce->getDirectCallee()->getNameAsString().find("cuda") == 0)
-        		std::cout << "\tCallExpr ce "<< ce->getDirectCallee()->getNameAsString() << "\n";
+        	if (ce->getDirectCallee()->getNameAsString().find("cuda") == 0) {
+        		//DEBUG std::cout << "\tCallExpr ce "<< ce->getDirectCallee()->getNameAsString() << "\n";
         		return RewriteCUDACall(ce, newExpr);
+        	}
+
+        	else { //Common function call, fixme default value parameters
+        		std::cout << "\tCall?!?!?\n";
+        	}
         } else if (MemberExpr *me = dyn_cast<MemberExpr>(e)) {
-        	std::cout << "\tMemberExpr me\n";
+        	//DEBUG std::cout << "\tMemberExpr me\n";
         	//Catches expressions which refer to the member of a struct or class
         	// in the CUDA case these are primarily just dim3s and cudaDeviceProp
         } else if (ExplicitCastExpr *ece = dyn_cast<ExplicitCastExpr>(e)) {
-        	std::cout << "\tExplicitCastExpr ece\n";
+        	//DEBUG std::cout << "\tExplicitCastExpr ece\n";
         	//Rewrite explicit casts of CUDA data types
         } else if (UnaryExprOrTypeTraitExpr *soe = dyn_cast<UnaryExprOrTypeTraitExpr>(e)) {
-        	std::cout << "\tUnaryExprOrTypeTraitExpr soe\n";
+        	//DEBUG std::cout << "\tUnaryExprOrTypeTraitExpr soe\n";
         	//Rewrite unary expressions or type trait expressions (things like sizeof)
         } else if (CXXTemporaryObjectExpr *cte = dyn_cast<CXXTemporaryObjectExpr>(e)) {
-        	std::cout << "\tCXXTemporaryObjectExpr cte\n";
+        	//DEBUG std::cout << "\tCXXTemporaryObjectExpr cte\n";
         	//Catches dim3 declarations of the form: some_var=dim3(x,y,z);
         	// the RHS is considered a temporary object
         } else if (CXXConstructExpr *cce = dyn_cast<CXXConstructExpr>(e)) {
-        	std::cout << "\tCXXConstructExpr cce\n";
+        	//DEBUG std::cout << "\tCXXConstructExpr cce\n";
         	//Catches dim3 declarations of the form: dim3 some_var(x,y,z);
         }
         bool ret = false;
@@ -413,13 +444,14 @@ private:
             std::string s;
             Expr *child = (Expr *) *CI;
             if (child && RewriteHostExpr(child, s)) {
-            	std::cout << "I was a child?\n";
+            	//DEBUG std::cout << "I was a child?\n";
                 //Perform "rewrite", which is just a simple replace
-                //ReplaceStmtWithText(child, s, exprRewriter);
+                ReplaceStmtWithText(child, s, exprRewriter);
                 ret = true;
             }
         }
-        Rew->ReplaceText(realRange, newExpr);
+        newExpr = exprRewriter.getRewrittenText(realRange);
+        //Rew->ReplaceText(realRange, newExpr);
 
 //        SourceRange newrealRange(SM->getExpansionLoc(e->getLocStart()),
 //                              SM->getExpansionLoc(e->getLocEnd()));
@@ -428,8 +460,8 @@ private:
     }
 
     std::string RewriteCUDAKernelCall(clang::CUDAKernelCallExpr *kernelCall) {
-		SourceLocation sloc = SM->getSpellingLoc(kernelCall->getExprLoc());
-    	std::cout << "RewriteCUDAKernelCall kernelCall: " << sloc.printToString(*SM) << "\n";
+    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(kernelCall->getExprLoc());
+    	//DEBUG std::cout << "RewriteCUDAKernelCall kernelCall: " << sloc.printToString(*SM) << "\n";
         CallExpr *kernelConfig = kernelCall->getConfig();
         Expr *grid = kernelConfig->getArg(0);
         Expr *block = kernelConfig->getArg(1);
@@ -439,9 +471,8 @@ private:
 //        std::cout << getStmtText(kernelCall->getCallee()) << "\n";
 //        std::cout << getStmtText(block) << "\n"; //g
 //        std::cout << getStmtText(kernelCall->getArg(0)) << "\n"; //42
-//
-//        //General rule?
-//        std::cout << "TRANSLATION\n";
+
+        //TODO Check if this is a general rule
         std::string SStr;
         llvm::raw_string_ostream S(SStr);
         S << getStmtText(kernelCall->getCallee()) << "(";
@@ -454,8 +485,8 @@ private:
     }
 
     bool RewriteCUDACall(CallExpr *cudaCall, std::string &newExpr) {
-		SourceLocation sloc = SM->getSpellingLoc(cudaCall->getExprLoc());
-    	std::cout << "RewriteCUDACall cudaCall: " << sloc.printToString(*SM) << "\n";
+    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(cudaCall->getExprLoc());
+    	//DEBUG std::cout << "RewriteCUDACall cudaCall: " << sloc.printToString(*SM) << "\n";
         std::string funcName = cudaCall->getDirectCallee()->getNameAsString();
         //TODO we have to match funcName.
         return true;
@@ -465,7 +496,7 @@ private:
 
     //The workhorse that takes the constructed replacement attribute and inserts it in place of the old one
     void RewriteAttr(Attr *attr, std::string replace, Rewriter &rewrite){
-    	std::cout << "RewriteAttr!\n";
+    	//DEBUG std::cout << "RewriteAttr!\n";
         SourceLocation instLoc = SM->getExpansionLoc(attr->getLocation());
         SourceRange realRange(instLoc, PP->getLocForEndOfToken(instLoc));
         rewrite.ReplaceText(instLoc, rewrite.getRangeSize(realRange), replace);
@@ -492,6 +523,16 @@ private:
            llvm::raw_string_ostream S(SStr);
            d->print(S);
            return S.str();
+       }
+
+       //Replace a chunk of code represented by a Stmt with a constructed string
+       bool ReplaceStmtWithText(Stmt *OldStmt, llvm::StringRef NewStr, Rewriter &Rewrite) {
+           SourceRange origRange = OldStmt->getSourceRange();
+           SourceLocation s = SM->getExpansionLoc(origRange.getBegin());
+           SourceLocation e = SM->getExpansionLoc(origRange.getEnd());
+           return Rewrite.ReplaceText(s,
+                                      Rewrite.getRangeSize(SourceRange(s, e)),
+                                      NewStr);
        }
 };
 
