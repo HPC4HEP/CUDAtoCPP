@@ -1,8 +1,27 @@
-__host__ void f();
-
 __global__ void g1(int x) {
-	x++;
+	int j;
+	int i = 0;
+
+	if(i < 1) {
+		i++;
+	} else {
+		__syncthreads();
+	}
+	
+	while(i<1){
+		i++;
+		__syncthreads();
+		i--
+	}
+	
+	for(i = 0; i < 2; i++){
+		a();
+		__syncthreads();
+		b();
+	}
+
 }
+
 
 int main(void) {
   dim3 g(1,1,1);
