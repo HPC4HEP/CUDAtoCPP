@@ -419,7 +419,7 @@ private:
 			S << kf->getCallResultType().getAsString() << " " << kf->getNameAsString() << "(";
 			for( int j = 0; j < kf->getNumParams(); j++){
 				//TODO Check if this is a general rule
-				S << kf->getParamDecl(j)->getType().getAsString() << " " << kf->getParamDecl(0)->getQualifiedNameAsString() << ", ";
+				S << kf->getParamDecl(j)->getType().getAsString() << " " << kf->getParamDecl(j)->getQualifiedNameAsString() << ", ";
 			}
 			S << "dim3 gridDim, dim3 blockDim, uint3 blockIdx)";
 			//DEBUG std::cout << S.str() << "\n";

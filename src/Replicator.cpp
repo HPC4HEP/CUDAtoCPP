@@ -46,11 +46,17 @@ using namespace llvm::sys::path;
 //TODO Is this mandatory?
 static llvm::cl::OptionCategory MatcherSampleCategory("Matcher Sample");
 
-//This class takes care of the universal replication, and of the movement of the declarations in the right places //fixme don't add thread_loops here? just the first?
-class MyReplicator : public ASTConsumer {
+/*
+ * This class takes care of augmenting the dimensionality of the local CUDA thread variables
+ * and of the movement of the declarations in the right places
+ *
+ */
+//
+//
+class dimensionality_augmenter : public ASTConsumer {
 public:
-	MyReplicator(CompilerInstance *comp, Rewriter * R) : ASTConsumer(), CI(comp), Rew(R) { }
-	virtual ~MyReplicator() { }
+	dimensionality_augmenter(CompilerInstance *comp, Rewriter * R) : ASTConsumer(), CI(comp), Rew(R) { }
+	virtual ~dimensionality_augmenter() { }
 	virtual void Initialize(ASTContext &Context) {
 		SM = &Context.getSourceManager();
 		LO = &CI->getLangOpts();
@@ -59,48 +65,30 @@ public:
 
 	virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
 
-
 		Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
-		//TODO what's the difference between SpellingLoc and Loc?
-		//SourceLocation loc = firstDecl->getLocation();
 		SourceLocation sloc = SM->getSpellingLoc(firstDecl->getLocation());
 
 		/*  Checking which file we are scanning.
 		 *  We skip everything apart from the main file.
-		 *  TODO: Rewriting some includes?
 		 *  FIXME: "extern" keyword in #defines could cause problems
 		 */
 		if( SM->getFileID(sloc) != SM->getMainFileID()){ //FileID mismatch
-			return true; //Just skip the loc but continue parsing. TODO: Can I skip the whole file?
+			return true; //Just skip the loc but continue parsing.
 		}
 
-		//DEBUG std::cout << "HandleTopLevelDecl: " << sloc.printToString(*SM) << "\n";
-
-        //Walk declarations in group and rewrite
+        //Walk and rewrite declarations in group
         for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
             //Handles globally defined functions
             if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*i)) {
-            	//DEBUG std::cout << "\tFunctionDecl2 fd\n";
-            	//TODO: Don't translate explicit template specializations
-            	//fixme Ignoring templates for now
-            	//if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
-                    if (fd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>()) { //FIXME need device?
-                    	//DEBUG std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = true\n";
+                    if (fd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>()) {
+                    	//FIXME Also CUDA Device has to be taken into account? Future work about functions called inside the kernels?
                     	//Device function, so rewrite kernel
                         RewriteKernelFunction(fd);
                     }
-                  //Templates again.
-//                } else {
-//                    if (fd->getTemplateSpecializationInfo())
-//                    	std::cout << "DEBUG: fd->getTemplateSpecializationInfo = true (Skip?)\n";
-//                    else
-//                    	std::cout << "DEBUG: Non-rewriteable function without TemplateSpecializationInfo detected?\n";
-//                }
             }
-            //TODO rewrite type declarations
         }
         return true;
-}
+	}
 
 private:
     CompilerInstance *CI;
@@ -108,82 +96,106 @@ private:
     LangOptions *LO;
     Preprocessor *PP;
     Rewriter *Rew;
-    std::set<std::string> KernelDecls;
-    std::vector<std::string> NewDecls;
-    SourceLocation kernelbodystart;
+    std::set<std::string> KernelDecls; //Just a set to see if we find DeclRefExpr matching the declarations we found before
+    std::vector<std::string> NewDecls; //Vector to save the declarations temporarily
+    SourceLocation kernelbodystart; //The start location of the kernel of the function
 
+    /*
+     * String representing the beginning of a thread loop //TODO not needed anymore in the dimensionality_augmenter?
+     */
     std::string TL_START1 = "for(threadIdx.z=0; threadIdx.z < blockDim.z; threadIdx.z++){\n";
     std::string TL_START2 = "for(threadIdx.y=0; threadIdx.y < blockDim.y; threadIdx.y++){\n";
     std::string TL_START3 = "for(threadIdx.x=0; threadIdx.x < blockDim.x; threadIdx.x++){\n";
-    std::string TL_START = TL_START1+TL_START2+TL_START3+"tid=threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y;";
-    //todo macro for tid instead of recalculating it everytime? it's the same maybe
+    std::string tid = "tid=threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y;"; //TODO MACRO for tid instead of recalculating it everytime? (it's the same maybe)
+    std::string TL_START = TL_START1+TL_START2+TL_START3+tid;
 
 
+    //String representing the end of a thread loop //TODO not needed anymore in the dimensionality_augmenter?
     std::string TL_END = "}}}";
-
+    /*
+     * Private method to prepare the function rewriting
+     * FIXME 1 At the moment the only scope we handle is the global one of the function.
+     * FIXME 1 We need to take into account multiple declarations of variables with the same names in different scopes,
+     * FIXME 1 so moving everything at the top of the scope on which we declared the variable and not at the beginning of the body.
+     *
+     * FIXME 2 We need to capture the value of the block dimension in the kernel call in the host code if we want to augment the dimensionality
+     * FIXME 2 in a static way. Otherwise we need to allocate the new variables dinamically. FIXME!Now the dimension is just hardcoded!
+     */
     void RewriteKernelFunction(FunctionDecl* kf) {
-           //Parameter Rewriting for a kernel
-   //        if (kf->hasBody()) {
-           if (Stmt *body = kf->getBody()){
-           	//Rew->InsertTextBefore(SM->getExpansionLoc(body->getLocStart()),"prova1\n");
-           	//DEBUG std::cout << "\tkf->hasBody() = true\n";
-           	//TODO ReorderKernel(body);
-           	kernelbodystart = PP->getLocForEndOfToken(body->getLocStart());
-           	replicate(body);
-           	// tid = threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y; //!!
-            std::string a = "\ndim3 threadIdx;\nint tid;\nint numThreads = 32;\n";
-            for(int i = 0; i < NewDecls.size(); i++){
-               a += NewDecls[i] + "\n";
-            }
-            //a+= TL_START;
-            Rew->InsertTextAfter(kernelbodystart, a);
-            //Rew->InsertTextBefore(body->getLocEnd(), TL_END);
-           }
 
-           //std::cout << KernelVars.size() << "\n";
+	   if (Stmt *body = kf->getBody()){
+		kernelbodystart = PP->getLocForEndOfToken(body->getLocStart());
+		replicate(body); //Call to the analysis of the variables
 
-
+		//We have also to declare the now explicit threadIdx, the tid to access the variables, and the dimension of the new dimensionality
+		std::string initsupport = "\ndim3 threadIdx;\nint tid;\nint numThreads = 32;\n";
+		for(int i = 0; i < NewDecls.size(); i++){
+			//We add to initsupport the list of the declarations we are moving
+			initsupport += NewDecls[i] + "\n";
+		}
+		//And then we insert everything at the beginning of the body.
+		Rew->InsertTextAfter(kernelbodystart, initsupport);
+	   } //else {} // Empty kernel (possible scenarios?)
     }
+
+
+    /*
+     * Private method that actually executes the augmenting of the dimensionality.
+     *
+     * FIXME 1 We are not keeping the information about the actual scope. This can be done casting before to compound statements?
+     *
+     * FIXME 2 What about the __constant__ variables?
+     */
     void replicate(Stmt *s){
 
+    		//Casting to compoundstmt
         	//if(CompoundStmt *cs = dyn_cast<CompoundStmt>(s)){
         	//	for(Stmt::child_iterator i = cs->body_begin(), e = cs->body_end(); i!=e; ++i){
         	//		if(*i){
     		//declaration inside a compound statement, which is a new scope
+
+    		//For every declaration we find we save them in a vector.
     		if (DeclStmt *ds = dyn_cast<DeclStmt>(s)){
     			DeclGroupRef DG = ds->getDeclGroup();
     			for (DeclGroupRef::iterator i2 = DG.begin(), e = DG.end(); i2!=e; ++i2){
-    			//for(clang::DeclGroupIterator i2 = ds->decl_begin(), e2 = ds->decl_end(); i2 != e2; ++i2){
-    				if(*i2){
-    					if(VarDecl *vd = dyn_cast<VarDecl>(*i2)){
-    						//Decl* a;
-    						//std::cout << "here " << vd->getType().getAsString() << vd->getNameAsString() << "\n";
+    				if(*i2){ //not null
+    					if(VarDecl *vd = dyn_cast<VarDecl>(*i2)){ //Found a VarDecl
+    					   /*
+    						* This declaration is tagged as shared, so we don't have to augment its dimensionality.
+    						* However is still needed to move it to the top of the scope.
+    						* FIXME 1 The dimension of the array is calculated before the translation if #defined
+    						* FIXME 1 and written in a strange way if we get the type. TODO ConstantArray?
+    						* FIXME 2 For some reason we're not able to remove the declaration from the original location.4
+    						*/
     						if (CUDASharedAttr *sharedAttr = vd->getAttr<CUDASharedAttr>()) {
-    							//fixme we don't have to replicate __shared__ memory (BUGGED)
-//    						//if(vd->hasAttr<CUDASharedAttr>()){
-//    							SourceRange a = SourceRange(PP->getLocForEndOfToken(vd->getLocStart()), vd->getLocEnd());
-//
-//    							StringRef test = Lexer::getSourceText(CharSourceRange(a, false), *SM, *LO);
-//    							std::cout << "Inserting madafakasa: " << test.str() << ";\n";
-//    							NewDecls.push_back(test.str()+";");
-//    							//NewDecls.push_back(vd->getType().getAsString()+ " "+ vd->getNameAsString()+";");
-//        						if(vd->hasInit()){
-//        							Rew->ReplaceText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), vd->getNameAsString() + " = " + getStmtText(vd->getInit()) + ";");
-//        						} else {
-//
-//        							StringRef test2 = Lexer::getSourceText(CharSourceRange(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), true), *SM, *LO);
-//        							std::cout << "deleting everything madafakka:" << test2.str() << "\n";
-//        							//std::cout << "here " << vd->getType(). << vd->getNameAsString() << "\n";
-//        							Rew->RemoveText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())));
-//        							//Rew->ReplaceText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), "");
-//        						}
-    						} else {
+    							//Workaround for bugged gettype, we take all the text.
+    							//SourceRange a = SourceRange(PP->getLocForEndOfToken(vd->getLocStart()), vd->getLocEnd());
+    							//StringRef test = Lexer::getSourceText(CharSourceRange(a, false), *SM, *LO);
+    							//NewDecls.push_back(test.str()+";");
+
+    							//Bugged getType
+    							//NewDecls.push_back(vd->getType().getAsString()+ " "+ vd->getNameAsString()+";");
+
+    							//If it has an initialization in the same statement of the declaration, we have to keep it.
+        						//if(vd->hasInit()){
+        							//Rew->ReplaceText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), vd->getNameAsString() + " = " + getStmtText(vd->getInit()) + ";");
+       						    //} else {
+    								//No initialization, we just move it and delete the old string.
+    								//FIXME BUGGED DELETING
+        							//StringRef test2 = Lexer::getSourceText(CharSourceRange(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), true), *SM, *LO);
+       							    //Rew->RemoveText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())));
+        							//Rew->ReplaceText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), "");
+        						//}
+    						} else {//Not a shared variable, we also have to augment the dimensionality!
+    							//Inserting the variables in a set just for the match with the refs
     							KernelDecls.insert(vd->getNameAsString());
-								//std::cout << "inserted vd " << vd->getNameAsString() << "\n";
+    							//Inserting the declaration string in the vector, adding the new dimensionality
+    							//FIXME BlockDimension also here?
 								NewDecls.push_back(vd->getType().getAsString()+" "+vd->getNameAsString()+"[numThreads];");
+								//Again if there is an initialization, we have to keep it.
 								if(vd->hasInit()){
 									Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), vd->getNameAsString() + "[tid] = " + getStmtText(vd->getInit()) + ";");
-								} else {
+								} else { //otherwise we delete everything.
 									Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), "");
 								}
     						}
@@ -192,16 +204,13 @@ private:
     				}
     			}
     		}
-    		else if(DeclRefExpr *dre = dyn_cast<DeclRefExpr>(s)){
-    			//if(dre->getNameInfo().getAsString() isin decls) then "vectorize"
-
-    			//std::cout << "dre " << dre->getNameInfo().getAsString() << "\n";
-    			if(KernelDecls.find(dre->getNameInfo().getAsString()) != KernelDecls.end()){
-    				//Rew->InsertTextAfter(dre->getLocEnd(), "[tid]");
+    		else if(DeclRefExpr *dre = dyn_cast<DeclRefExpr>(s)){ //Searching for DeclRefExpr
+    			if(KernelDecls.find(dre->getNameInfo().getAsString()) != KernelDecls.end()){ //We found one matching the declarations saved before
+    				//Then we access it by thread id.
     				Rew->ReplaceText(SourceRange(dre->getLocStart(), dre->getLocEnd()), dre->getNameInfo().getAsString()+"[tid]");
-    				//std::cout << "dre " << dre->getNameInfo().getAsString() << "\n";
     			}
     		}
+    		//Keep iterating
     		for (Stmt::child_iterator s_ci = s->child_begin(), s_ce = s->child_end(); s_ci != s_ce; ++s_ci) {
     			if(*s_ci){
     				replicate(*s_ci);
@@ -210,24 +219,30 @@ private:
     		}
     }
 
+    //Utility to get the text from a statement
+    //Technique found in the CU2CL implementation.
     std::string getStmtText(Stmt *s) {
-        SourceLocation a(SM->getExpansionLoc(s->getLocStart())), b(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(s->getLocEnd())), 0,  *SM, *LO));
-        return std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
+        SourceLocation start(SM->getExpansionLoc(s->getLocStart())), end(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(s->getLocEnd())), 0,  *SM, *LO));
+        return std::string(SM->getCharacterData(start), SM->getCharacterData(end)-SM->getCharacterData(start));
     }
 
 };
 
+//Our ASTFrontendAction.
 class Replication : public ASTFrontendAction{
 public:
 	Replication(){}
 	void EndSourceFileAction() override {
-		TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs()); //write in a temporary (file, stream?)
+		//For now we just use llvm::outs, which is a raw_ostream referencing the standard output. Then we redirect it to a temporary file
+		// or to the input of the Rewriter tool.
+		//TODO can we just make them communicate together via source code? (Directly or with a temporary file?)
+		TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
 
 	}
 
 	std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
 		TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-		return llvm::make_unique<MyReplicator>(&CI, &TheRewriter);
+		return llvm::make_unique<dimensionality_augmenter>(&CI, &TheRewriter);
 	}
 private:
 	Rewriter TheRewriter;
