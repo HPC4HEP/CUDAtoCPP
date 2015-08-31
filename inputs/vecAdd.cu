@@ -1,4 +1,3 @@
-//#include "/home/latzori/clang-llvm/build/lib/clang/3.7.0/include/stddef.h"
 
 __global__ void vecAdd(double *a, double *b, double *c, int n)
 {

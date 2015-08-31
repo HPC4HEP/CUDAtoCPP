@@ -115,3 +115,7 @@ $(BUILDDIR)/Replicator: $(SRCDIR)/Replicator.cpp
 .PHONY: clean
 clean:
 	rm -rf $(BUILDDIR)/* *.dot test/*.pyc test/__pycache__
+
+
+#TODO
+#MAKEFILE ALSO FOR THE TEST FOLDER
