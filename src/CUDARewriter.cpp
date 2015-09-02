@@ -46,153 +46,6 @@ using namespace llvm::sys::path;
 //TODO Is this mandatory?
 static llvm::cl::OptionCategory MatcherSampleCategory("Matcher Sample");
 
-////This class takes care of the universal replication, and of the movement of the declarations in the right places //fixme don't add thread_loops here? just the first?
-//class MyReplicator : public ASTConsumer {
-//public:
-//	MyReplicator(CompilerInstance *comp, Rewriter * R) : ASTConsumer(), CI(comp), Rew(R) { }
-//	virtual ~MyReplicator() { }
-//	virtual void Initialize(ASTContext &Context) {
-//		SM = &Context.getSourceManager();
-//		LO = &CI->getLangOpts();
-//		PP = &CI->getPreprocessor();
-//	}
-//
-//	virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
-//
-//
-//		Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
-//		//TODO what's the difference between SpellingLoc and Loc?
-//		//SourceLocation loc = firstDecl->getLocation();
-//		SourceLocation sloc = SM->getSpellingLoc(firstDecl->getLocation());
-//
-//		/*  Checking which file we are scanning.
-//		 *  We skip everything apart from the main file.
-//		 *  TODO: Rewriting some includes?
-//		 *  FIXME: "extern" keyword in #defines could cause problems
-//		 */
-//		if( SM->getFileID(sloc) != SM->getMainFileID()){ //FileID mismatch
-//			return true; //Just skip the loc but continue parsing. TODO: Can I skip the whole file?
-//		}
-//
-//		//DEBUG std::cout << "HandleTopLevelDecl: " << sloc.printToString(*SM) << "\n";
-//
-//        //Walk declarations in group and rewrite
-//        for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
-//            //Handles globally defined functions
-//            if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*i)) {
-//            	//DEBUG std::cout << "\tFunctionDecl2 fd\n";
-//            	//TODO: Don't translate explicit template specializations
-//            	//fixme Ignoring templates for now
-//            	//if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
-//                    if (fd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>()) { //FIXME need device?
-//                    	//DEBUG std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = true\n";
-//                    	//Device function, so rewrite kernel
-//                        RewriteKernelFunction(fd);
-//                    }
-//                  //Templates again.
-////                } else {
-////                    if (fd->getTemplateSpecializationInfo())
-////                    	std::cout << "DEBUG: fd->getTemplateSpecializationInfo = true (Skip?)\n";
-////                    else
-////                    	std::cout << "DEBUG: Non-rewriteable function without TemplateSpecializationInfo detected?\n";
-////                }
-//            }
-//            //TODO rewrite type declarations
-//        }
-//        return true;
-//}
-//
-//private:
-//    CompilerInstance *CI;
-//    SourceManager *SM;
-//    LangOptions *LO;
-//    Preprocessor *PP;
-//    Rewriter *Rew;
-//    std::set<std::string> KernelDecls;
-//    std::vector<std::string> NewDecls;
-//    SourceLocation kernelbodystart;
-//
-//    void RewriteKernelFunction(FunctionDecl* kf) {
-//           //Parameter Rewriting for a kernel
-//   //        if (kf->hasBody()) {
-//           if (Stmt *body = kf->getBody()){
-//           	//Rew->InsertTextBefore(SM->getExpansionLoc(body->getLocStart()),"prova1\n");
-//           	//DEBUG std::cout << "\tkf->hasBody() = true\n";
-//           	//TODO ReorderKernel(body);
-//           	kernelbodystart = PP->getLocForEndOfToken(body->getLocStart());
-//           	replicate(body);
-//            std::string a = "\n";
-//            for(int i = 0; i < NewDecls.size(); i++){
-//               a += NewDecls[i] + "\n";
-//            }
-//               Rew->InsertTextAfter(kernelbodystart, a);
-//           }
-//           //std::cout << KernelVars.size() << "\n";
-//
-//
-//    }
-//    void replicate(Stmt *s){
-//
-//        	//if(CompoundStmt *cs = dyn_cast<CompoundStmt>(s)){
-//        	//	for(Stmt::child_iterator i = cs->body_begin(), e = cs->body_end(); i!=e; ++i){
-//        	//		if(*i){
-//    		//declaration inside a compound statement, which is a new scope
-//    		if (DeclStmt *ds = dyn_cast<DeclStmt>(s)){
-//    			DeclGroupRef DG = ds->getDeclGroup();
-//    			for (DeclGroupRef::iterator i2 = DG.begin(), e = DG.end(); i2!=e; ++i2){
-//    			//for(clang::DeclGroupIterator i2 = ds->decl_begin(), e2 = ds->decl_end(); i2 != e2; ++i2){
-//    				if(*i2){
-//    					if(VarDecl *vd = dyn_cast<VarDecl>(*i2)){
-//    						if(vd->hasAttr<CUDASharedAttr>()){
-//    						//if (CUDASharedAttr *sharedAttr = vd->getAttr<CUDASharedAttr>()) {
-////    							NewDecls.push_back(vd->getType().getAsString()+" "+vd->getNameAsString()+";");
-////        						if(vd->hasInit()){
-////        							std::cout << "\n" << vd->getNameAsString() << " has init!\n";
-////        							Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), vd->getNameAsString() + " = " + getStmtText(vd->getInit()) + ";");
-////        						} else {
-////        							Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), "");
-////        						}
-//    							continue;
-//    						} else {
-//    						KernelDecls.insert(vd->getNameAsString());
-//    						//std::cout << "inserted vd " << vd->getNameAsString() << "\n";
-//    						NewDecls.push_back(vd->getType().getAsString()+" "+vd->getNameAsString()+"[numThreads];");
-//    						if(vd->hasInit()){
-//    							Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), vd->getNameAsString() + "[tid] = " + getStmtText(vd->getInit()) + ";");
-//    						} else {
-//    							Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), "");
-//    						}
-//    						}
-//
-//    					}
-//    				}
-//    			}
-//    		}
-//    		else if(DeclRefExpr *dre = dyn_cast<DeclRefExpr>(s)){
-//    			//if(dre->getNameInfo().getAsString() isin decls) then "vectorize"
-//
-//    			//std::cout << "dre " << dre->getNameInfo().getAsString() << "\n";
-//    			if(KernelDecls.find(dre->getNameInfo().getAsString()) != KernelDecls.end()){
-//    				//Rew->InsertTextAfter(dre->getLocEnd(), "[tid]");
-//    				Rew->ReplaceText(SourceRange(dre->getLocStart(), dre->getLocEnd()), dre->getNameInfo().getAsString()+"[tid]");
-//    				//std::cout << "dre " << dre->getNameInfo().getAsString() << "\n";
-//    			}
-//    		}
-//    		for (Stmt::child_iterator s_ci = s->child_begin(), s_ce = s->child_end(); s_ci != s_ce; ++s_ci) {
-//    			if(*s_ci){
-//    				replicate(*s_ci);
-//    			}
-//
-//    		}
-//    }
-//
-//    std::string getStmtText(Stmt *s) {
-//        SourceLocation a(SM->getExpansionLoc(s->getLocStart())), b(Lexer::getLocForEndOfToken(SourceLocation(SM->getExpansionLoc(s->getLocEnd())), 0,  *SM, *LO));
-//        return std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
-//    }
-//
-//};
-
 class MyASTConsumer : public ASTConsumer {
 public:
 	MyASTConsumer(CompilerInstance *comp, Rewriter *R) : ASTConsumer(), CI(comp), Rew(R){ }
@@ -208,89 +61,54 @@ public:
 
 
 		Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
-		//TODO what's the difference between SpellingLoc and Loc?
-		//SourceLocation loc = firstDecl->getLocation();
 		SourceLocation sloc = SM->getSpellingLoc(firstDecl->getLocation());
 
 		/*  Checking which file we are scanning.
 		 *  We skip everything apart from the main file.
-		 *  TODO: Rewriting some includes?
 		 *  FIXME: "extern" keyword in #defines could cause problems
 		 */
 		if( SM->getFileID(sloc) != SM->getMainFileID()){ //FileID mismatch
-			return true; //Just skip the loc but continue parsing. TODO: Can I skip the whole file?
+			return true; //Just skip the loc but continue parsing.
 		}
-
-		//DEBUG std::cout << "HandleTopLevelDecl: " << sloc.printToString(*SM) << "\n";
 
         //Walk declarations in group and rewrite
         for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
             if (DeclContext *dc = dyn_cast<DeclContext>(*i)) {
-            	//DEBUG std::cout << "\tDeclContext dc\n";
                 //Basically only handles C++ member functions
                 for (DeclContext::decl_iterator di = dc->decls_begin(), de = dc->decls_end(); di != de; ++di) {
                     if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*di)) {
-                    	//DEBUG std::cout << "\t\tFunctionDecl1 fd\n";
                     	//Prevent implicitly defined functions from being rewritten (since there's no source to rewrite..)
                         if (!fd->isImplicit()) {
-                        	//DEBUG std::cout << "\t\t\tfd->isImplicit = false\n";
                         	//TODO: What case applies here? Simply removing those kind of functions?
                             RewriteHostFunction(fd);
                         } else {
-                        	//DEBUG std::cout << "\t\t\tfd->isImplicit = true (skip)\n";
+                        	//TODO: fd was implicit, what to do then?
                         }
                     }
                 }
             }
             //Handles globally defined functions
             if (FunctionDecl *fd = dyn_cast<FunctionDecl>(*i)) {
-            	//DEBUG std::cout << "\tFunctionDecl2 fd\n";
             	//TODO: Don't translate explicit template specializations
             	//fixme Ignoring templates for now
-            	//if(fd->getTemplatedKind() == clang::FunctionDecl::TK_NonTemplate || fd->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
                     if (fd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>()) {
-                    	//DEBUG std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = true\n";
                     	//Device function, so rewrite kernel
                         RewriteKernelFunction(fd);
                         if (fd->hasAttr<CUDAHostAttr>()){
-                        	//DEBUG std::cout << "\t\t\tfd->hasAttr<CUDAHostAttr>() = true\n";
                             //Also a host function, so rewrite host?
                             RewriteHostFunction(fd);
                         } else {
-                        	//DEBUG std::cout << "\t\t\tfd->hasAttr<CUDAHostAttr>() = false\n";
                             //Simply a device function, so remove from host?
                             //RemoveFunction(fd, HostRewrite);
                         }
                     } else {
-                    	//DEBUG std::cout << "\t\tfd->hasAttr<CUDAGlobalAttr>() || fd->hasAttr<CUDADeviceAttr>() = false\n";
                         //Simply a host function, so rewrite...
                         RewriteHostFunction(fd);
-//                        if (CUDAHostAttr *attr = fd->getAttr<CUDAHostAttr>()) {
-//                        	std::cout << "DEBUG: Found CUDAHostAttr...";
-//                            SourceLocation instLoc = SM->getExpansionLoc(attr->getLocation());
-//                            std::cout << " at loc " << instLoc.printToString(*SM);
-//                            SourceRange realRange(instLoc, PP->getLocForEndOfToken(instLoc));
-//                            std::cout << " ending at " << PP->getLocForEndOfToken(instLoc).printToString(*SM);
-//                            Rew->ReplaceText(instLoc, Rew->getRangeSize(realRange), "");
-//                            std::cout << " Removed!\n";
-//                        }
                         //...and remove from kernel?
 //                        RemoveFunction(fd, KernelRewrite);
-
-//                        if (fd->getNameAsString() == MainFuncName) {
-//                            RewriteMain(fd);
-//                        }
                     }
-                  //Templates again.
-//                } else {
-//                    if (fd->getTemplateSpecializationInfo())
-//                    	std::cout << "DEBUG: fd->getTemplateSpecializationInfo = true (Skip?)\n";
-//                    else
-//                    	std::cout << "DEBUG: Non-rewriteable function without TemplateSpecializationInfo detected?\n";
-//                }
             //Globally defined variables
             } else if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-            	//DEBUG std::cout << "\tVarDecl vd\n";
                 //RemoveVar(vd, KernelRewrite);
                 RewriteHostVarDecl(vd);
             //Rewrite Structs here
@@ -298,9 +116,7 @@ public:
             // and just wrap it with __attribute__((aligned (<kept Expr>)))
             //TODO: Finish struct attribute translation
         	} else if (RecordDecl * rd = dyn_cast<RecordDecl>(*i)) {
-        		//DEBUG std::cout << "\tRecordDecl rd\n";
                 if (rd->hasAttrs()) {
-                	//DEBUG std::cout << "\t\trd->hasAttrs = true\n";
 //                    for (Decl::attr_iterator at = rd->attr_begin(), at_e = rd->attr_end(); at != at_e; ++at) {
 //                        if (AlignedAttr *align = dyn_cast<AlignedAttr>(*at)) {
 //                            if (!align->isAlignmentDependent()) {
@@ -314,7 +130,7 @@ public:
 //                    }
                 }
             }
-            //TODO rewrite type declarations
+            //TODO rewrite type declarations?
         }
         return true;
 }
@@ -325,10 +141,6 @@ private:
     LangOptions *LO;
     Preprocessor *PP;
     Rewriter *Rew;
-    //std::set<VarDecl *> KernelDecls;
-    std::set<std::string> initStmts;
-    std::set<std::string> KernelDecls;
-    std::vector<std::string> NewDecls;
 
     std::string TL_START1 = "for(threadIdx.z=0; threadIdx.z < blockDim.z; threadIdx.z++){\n";
     std::string TL_START2 = "for(threadIdx.y=0; threadIdx.y < blockDim.y; threadIdx.y++){\n";
@@ -345,74 +157,57 @@ private:
      */
     void RewriteHostFunction(FunctionDecl *hostFunc) {
 		SourceLocation sloc = SM->getSpellingLoc(hostFunc->getLocation());
-		//DEBUG std::cout << "RewriteHostFunction hostFunc: " << sloc.printToString(*SM) << "\n";
     	//Remove any CUDA function attributes
         if (CUDAHostAttr *attr = hostFunc->getAttr<CUDAHostAttr>()) {
-        	//DEBUG std::cout << "\thostFunc->hasAttr<CUDAHostAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
         if (CUDADeviceAttr *attr = hostFunc->getAttr<CUDADeviceAttr>()) {
-        	//DEBUG std::cout << "\thostFunc->hasAttr<CUDADeviceAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
 
         //Rewrite the body
         if (Stmt *body = hostFunc->getBody()) {
-        	//DEBUG std::cout << "\thostFunc->hasBody() = true\n";
             RewriteHostStmt(body);
         }
     }
 
     //Dispatching between expressions, declarations and other statements
     void RewriteHostStmt(Stmt *s) {
-    	//DEBUG std::cout << "RewriteHostStmt s: ";
         if (Expr *e = dyn_cast<Expr>(s)) {
-        	//DEBUG SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-        	//DEBUG std::cout << "<Expr> " << sloc.printToString(*SM) << "\n";
         	std::string str;
         	if (RewriteHostExpr(e, str)) ReplaceStmtWithText(e, str, *Rew);
         }
         else if (DeclStmt *ds = dyn_cast<DeclStmt>(s)) {
-        	//DEBUG SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
-        	//DEBUG std::cout << "<DeclStmt> " << sloc.printToString(*SM) << "\n";
         	DeclGroupRef DG = ds->getDeclGroup();
 			Decl *firstDecl = DG.isSingleDecl() ? DG.getSingleDecl() : DG.getDeclGroup()[0];
             for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(); i != e; ++i) {
                 if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-                	//DEBUG std::cout << "\tVarDecl vd\n";
                     RewriteHostVarDecl(vd);
                 }
             }
         } else {
             //Traverse children and recurse
             for (Stmt::child_iterator CI = s->child_begin(), CE = s->child_end(); CI != CE; ++CI) {
-            	//DEBUG std::cout << "children!\n";
                 if (*CI) RewriteHostStmt(*CI);
             }
         }
     }
 
     void RewriteKernelFunction(FunctionDecl* kf) {
-    	//DEBUG: SourceLocation sloc = SM->getSpellingLoc(kf->getLocation());
-    	//DEBUG: std::cout << "RewriteKernelFunction kf: " << sloc.printToString(*SM) << "\n";
 
         if (CUDAGlobalAttr *attr = kf->getAttr<CUDAGlobalAttr>()) {
-        	//DEBUG std::cout << "\tkf->hasAttr<CUDAGlobalAttr>() = true\n";
     		RewriteAttr(attr, "", *Rew);
         }
         if (CUDADeviceAttr *attr = kf->getAttr<CUDADeviceAttr>()) {
-        	//DEBUG std::cout << "\tkf->hasAttr<CUDADeviceAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
 
         if (CUDAHostAttr *attr = kf->getAttr<CUDAHostAttr>()) {
-        	//DEBUG std::cout << "\tkf->hasAttr<CUDAHostAttr>() = true\n";
             RewriteAttr(attr, "", *Rew);
         }
 
         //Parameter Rewriting for a kernel
     	if (kf->hasAttr<CUDAGlobalAttr>()) {
-    		//DEBUG std::cout << "\tkf->hasAttr<CUDAGlobalAttr>() = true\n";
         	//Means host callable
     		std::string SStr;
 			llvm::raw_string_ostream S(SStr);
@@ -422,7 +217,6 @@ private:
 				S << kf->getParamDecl(j)->getType().getAsString() << " " << kf->getParamDecl(j)->getQualifiedNameAsString() << ", ";
 			}
 			S << "dim3 gridDim, dim3 blockDim, uint3 blockIdx)";
-			//DEBUG std::cout << S.str() << "\n";
 			SourceLocation start = SM->getExpansionLoc(kf->getLocStart());
 			SourceLocation end = PP->getLocForEndOfToken(SM->getExpansionLoc(kf->getParamDecl(kf->getNumParams()-1)->getLocEnd()));
 			SourceRange range(start, end);//PP->getLocForEndOfToken(instLoc));
@@ -430,204 +224,28 @@ private:
 
 
         }
-//        if (kf->hasBody()) {
+    	//Rewrite the body of the kernel
         if (Stmt *body = kf->getBody()){
-        	//Rew->InsertTextBefore(SM->getExpansionLoc(body->getLocStart()),"prova1\n");
-        	//DEBUG std::cout << "\tkf->hasBody() = true\n";
-        	//TODO ReorderKernel(body);
-        	//kernelbodystart = PP->getLocForEndOfToken(body->getLocStart());
-        	//newbody = replicate(body);
             T3(body, true);
-//            std::string a = "\n";
-//            for(int i = 0; i < NewDecls.size(); i++){
-//            	a += NewDecls[i] + "\n";
-//            }
-//            Rew->InsertTextAfter(kernelbodystart, a+"TL_START");
-//            Rew->InsertTextBefore(body->getLocEnd(), "TL_END");
         }
-        //std::cout << KernelVars.size() << "\n";
-
 
     }
 
-//    void RewriteKernelStmt(Stmt *ks, int depth, bool first) {
-//    	if(first){
-//			Rew->InsertTextAfter(PP->getLocForEndOfToken(SM->getExpansionLoc(ks->getLocStart())), "\nTL_BEGIN\n");
-//			Rew->InsertTextBefore(SM->getExpansionLoc(ks->getLocEnd()), "\nTL_END\n");
-//    	}
-//    	/*
-//    	 * That's our main business!
-//    	 * TODO: probably we will need some disambiguation of the variable names
-//    	 * TODO: we have to split all the declarations with assignments in two different statements (declaration + assignment)
-//    	 * TODO: we have to move all the declarations to the top of the kernel body
-//    	 * TODO: we have to add the uint3/dim3 threadIdx declaration
-//    	 * TODO: after the declarations, we have to surround everythin left of the body with the triple for loop (threadIdx.x,y,z)
-//    	 * TODO: for every __syncthread() we encounter, we split the triple for-loop (also for break, continue, return statements?)
-//    	 */
-//        //Visit this node
-//    	//std::cout << "Inserting stuff\n";
-////    	if(depth == 1) {
-////    	Rew->InsertTextBefore(SM->getExpansionLoc(ks->getLocStart()), "\n/* here they are the for loops */\n");
-////    	}
-//		if (Expr *e = dyn_cast<Expr>(ks)) {
-//			std::cout << "Expr " << getStmtText(e) << " @ " << depth << "\n";
-//			//SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-//			//std::cout << "<Expr> " << sloc.printToString(*SM) << " " << e-> << "\n";
-//			std::string str;
-//			//FIXME it has to be shaped like this? Why RewriteKernelExpr() cannot just directly rewrite?
-//			if (RewriteKernelExpr(e, str)) {
-//				//Found a __syncthreads()
-//				//Rew->InsertTextAfter(); //3-loop after the beginning of this compound stmt
-//				ReplaceStmtWithText(e, str, *Rew); //simply comments the call?
-//				//Rew->InsertTextBefore(); //closing before the __sync loc
-//				//Rew->InsertTextAfter(); //3-loop after the __sync loc
-//				//Rew->InsertTextBefore(); //closing before the end of this compound stmt
-//			}
-//		}
-//		else if (DeclStmt *ds = dyn_cast<DeclStmt>(ks)) {
-//			std::cout << "DeclStmt " << getStmtText(ds) << " @ " << depth << "\n";
-//			//SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
-//			//std::cout << "<DeclStmt> " << sloc.printToString(*SM) << " " << num << "\n";
-//			DeclGroupRef DG = ds->getDeclGroup();
-//			for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(), counter=0; i != e; ++i, counter++) {
-//				//std::cout << "group " << counter << "\n";
-//				if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-//					//DEBUG std::cout << "\tVarDecl vd\n";
-//					//if(vd->hasInit()) std::cout << "init\n";
-//
-//					if(vd->hasInit()) {
-//					//std::cout << vd->getQualifiedNameAsString() << "\n";
-//					KernelDecls.insert(vd->getCanonicalDecl());
-//					std::string stmtstr = vd->getNameAsString() + "=" + getStmtText(vd->getInit()) + ";\n";
-//					initStmts.insert(stmtstr);
-//					//std::cout << stmtstr << "\n";
-//					} else {
-//						//std::cout << vd->getType().getAsString() << " " << vd->getNameAsString() << "\n";
-//						KernelDecls.insert(vd);
-//					}
-//
-//					RewriteKernelVarDecl(vd);
-//				}
-//				//TODO other non-top level declarations??
-//			}
-//		}
-//		//TODO rewrite any other Stmts?
-////		else if(CompoundStmt *cs = dyn_cast<CompoundStmt>(ks)){
-////				std::cout << "CompoundStmt "<< getStmtText(cs) << " @ " << depth << "\n";
-////
-////				//Entering a new scope
-////				//useful to find new scopes! because is simply another level of depth...
-////				//TODO: search for __syncthreads(), and if found, surround this statement with triple-for?
-////				depth++;
-////				//Traverse children and recurse
-////				Rew->InsertTextAfter(PP->getLocForEndOfToken(cs->getLocStart()), "\nTL_BEGIN (CompoundStmt)\n");
-////				for (Stmt::child_iterator CI = cs->body_begin(), CE = cs->body_end(); CI != CE; ++CI) {
-////					//std::cout << "compound children:\n";
-////					if (*CI) {
-////						//std::cout << "RewriteKernelStmt level " << depth << ": "; // << getStmtText(*CI) << "\n";
-////						RewriteKernelStmt(*CI, depth);
-////					}
-////				}
-////				Rew->InsertTextBefore(cs->getRBracLoc(), "\nTL_END (CompoundStmt)\n");
-////
-////		}
-////		else if(IfStmt *is = dyn_cast<IfStmt>(ks)){
-////			std::cout << "IfStmt -> " << getStmtText(ks) << " @ " << depth << "\n";
-////			for (Stmt::child_iterator CI = ks->child_begin(), CE = ks->child_end(); CI != CE; ++CI) {
-////				//std::cout << "children\n";
-////				if (*CI) {
-////					RewriteKernelStmt(*CI, depth, false);
-////				}
-////			}
-////		}
-//		else {
-////			if(ForStmt *fs = dyn_cast<ForStmt>(ks)){
-////				if(fs->)
-////				Rew->InsertTextBefore(fs->getLocStart(), "\nTL_END\n");
-////				Rew->InsertTextAfter(fs->get)
-////			}
-//			//something different i.e. for loop
-//			//Traverse children and recurse
-//			//
-//
-//			//TODO THERE'S NO SUCH THING AS PURE COMPOUND STATEMENTS PROBABLY, SO WE NEED TO PUT A TL_END BEFORE THE STATEMENTS
-//			// INVOLVING ANY OF THEM (i.e. before 'for(){}' ) AND A TL_BEGIN AFTER ANY OF THEM (after the '{' )
-//			//TODO CHECK the advantages of doing the cast of compound inside the else branch in the for loop... could be useful
-//			// to do it outside but still in the else, or add another specific case in the if-elseif chain for compound statements
-//
-//			//(at the moment the first TL_BEGIN at the beginning of the function body and the last TL_END at the end are missing.
-//			//TODO: it can be done maybe simply checking the depth or there is a better way to automatize it (i.e. considering
-//			// the body of the whole function as a compound statement?)
-//			std::cout << "Stmt -> " << getStmtText(ks) << " @ " << depth << "\n";
-//			for (Stmt::child_iterator CI = ks->child_begin(), CE = ks->child_end(); CI != CE; ++CI) {
-//				//std::cout << "children\n";
-//				if (*CI) {
-//					if(CompoundStmt *cs = dyn_cast<CompoundStmt>(*CI)){
-//						if(IfStmt *is = dyn_cast<IfStmt>(ks)){
-//							//Compound statements of if statements doesn't have to be surrounded by thread_loops
-//							RewriteKernelStmt(*CI, depth, false);
-//						}
-//						else{
-//							std::cout << "CompoundStmt "<< getStmtText(cs) << " @ " << depth << "\n";
-//							Rew->InsertTextBefore(SM->getExpansionLoc(ks->getLocStart()), "\nTL_END (Opening a CompoundStmt)\n");
-//							//Entering a new scope
-//							//useful to find new scopes! because is simply another level of depth...
-//							//TODO: search for __syncthreads(), and if found, surround this statement with triple-for?
-//							depth++;
-//							//Traverse children and recurse
-//							Rew->InsertTextAfter(PP->getLocForEndOfToken(cs->getLocStart()), "\nTL_BEGIN (CompoundStmt)\n");
-//							for (Stmt::child_iterator CCI = cs->body_begin(), CCE = cs->body_end(); CCI != CCE; ++CCI) {
-//								//std::cout << "compound children:\n";
-//								if (*CCI) {
-//									//if(BreakStmt *bs = dyn_cast<BreakStmt>(*CCI)) Rew->InsertTextAfter(ks->getLocEnd(), "Break goes here!\n");
-//									//std::cout << "RewriteKernelStmt level " << depth << ": "; // << getStmtText(*CI) << "\n";
-//									RewriteKernelStmt(*CCI, depth, false);
-//								}
-//							}
-//							Rew->InsertTextBefore(cs->getRBracLoc(), "\nTL_END (CompoundStmt)\n");
-//							//FIXME: bug with the semicolon ending a do-while statement
-//							Rew->InsertTextAfter(PP->getLocForEndOfToken(SM->getExpansionLoc(ks->getLocEnd())), "\nTL_BEGIN (Closing a CompoundStmt)\n");
-//						}
-//					}
-//					else {
-//					//std::cout << "RewriteKernelStmt level " << depth << ": "; // << getStmtText(*CI) << "\n";
-//						//if(BreakStmt *bs = dyn_cast<BreakStmt>(*CI))
-//						//	Rew->InsertTextAfter(ks->getLocEnd(), "Break goes here!\n");
-//						RewriteKernelStmt(*CI, depth, false);
-//					}
-//				}
-//			}
-//			//Rew->InsertTextAfter(PP->getLocForEndOfToken(SM->getExpansionLoc(ks->getLocEnd())), "\nTL_BEGIN (Stmt)\n");
-//		}
-//    }
-
-    SourceLocation kernelbodystart;
 
     void T3(Stmt *s, bool first){
-    	if(first){
+    	if(first){ //We are entering the method for the first time
     		SourceLocation begin = s->getLocStart();
     		if(CompoundStmt * cs = dyn_cast<CompoundStmt>(s)){
 				for(Stmt::child_iterator i = cs->body_begin(), e = cs->body_end(); i!=e; ++i){
 					if(*i){
-						//std::cout << getStmtText(*i);
-						//if (DeclStmt *ds = dyn_cast<DeclStmt>(*i)){
-							//DeclGroupRef DG = ds->getDeclGroup();
-							//for (DeclGroupRef::iterator i2 = DG.begin(), e = DG.end(); i2!=e; ++i2){
-								//if(*i2){
-									if(DeclStmt *vd = dyn_cast<DeclStmt>(*i)){
-										begin = PP->getLocForEndOfToken(vd->getLocEnd());
-										//std::cout << "ueue\n";
-									}
-									else break;
-								//}
-							//}
-						//} else {
-						//	break;
-						//}
+						if(DeclStmt *vd = dyn_cast<DeclStmt>(*i)){
+							begin = PP->getLocForEndOfToken(vd->getLocEnd());
+						}
+						else break;
 					}
 				}
     		} else {
-    			std::cout << "\nil primo non era un compound!\n";
+    			//The first stmt wasn't a compound statement. Is this possible?
     			first = false;
 
     		}
@@ -635,67 +253,7 @@ private:
     		Rew->InsertTextBefore(s->getLocEnd(), "\n"+TL_END+"\n");
     		first = false;
     	}
-    	//if(CompoundStmt *cs = dyn_cast<CompoundStmt>(s)){
-    	//	for(Stmt::child_iterator i = cs->body_begin(), e = cs->body_end(); i!=e; ++i){
-    	//		if(*i){
-		//declaration inside a compound statement, which is a new scope
-//		if (DeclStmt *ds = dyn_cast<DeclStmt>(s)){
-//			DeclGroupRef DG = ds->getDeclGroup();
-//			for (DeclGroupRef::iterator i2 = DG.begin(), e = DG.end(); i2!=e; ++i2){
-//			//for(clang::DeclGroupIterator i2 = ds->decl_begin(), e2 = ds->decl_end(); i2 != e2; ++i2){
-//				if(*i2){
-//					if(VarDecl *vd = dyn_cast<VarDecl>(*i2)){
-//						KernelDecls.insert(vd->getNameAsString());
-//						//std::cout << "inserted vd " << vd->getNameAsString() << "\n";
-//						NewDecls.push_back(vd->getType().getAsString()+" "+vd->getNameAsString()+"[numThreads];");
-//						if(vd->hasInit()){
-//							Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), vd->getNameAsString() + "[tid] = " + getStmtText(vd->getInit()) + ";");
-//						} else {
-//							Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), "");
-//						}
-//
-//					}
-//				}
-//			}
-//		}
-//		else if(DeclRefExpr *dre = dyn_cast<DeclRefExpr>(s)){
-//			//if(dre->getNameInfo().getAsString() isin decls) then "vectorize"
-//
-//			//std::cout << "dre " << dre->getNameInfo().getAsString() << "\n";
-//			if(KernelDecls.find(dre->getNameInfo().getAsString()) != KernelDecls.end()){
-//				//Rew->InsertTextAfter(dre->getLocEnd(), "[tid]");
-//				Rew->ReplaceText(SourceRange(dre->getLocStart(), dre->getLocEnd()), dre->getNameInfo().getAsString()+"[tid]");
-//				//std::cout << "dre " << dre->getNameInfo().getAsString() << "\n";
-//			}
-//		}
-		//}
-    	//	}
-    	//}
-//    	if (DeclStmt *ds = dyn_cast<DeclStmt>(s)) {
-//			SourceLocation sloc = SM->getSpellingLoc(ds->getStartLoc());
-//			std::cout << "<DeclStmt> " << sloc.printToString(*SM) << " \n";
-//			DeclGroupRef DG = ds->getDeclGroup();
-//			for (DeclGroupRef::iterator i = DG.begin(), e = DG.end(), counter=0; i != e; ++i, counter++) {
-//				std::cout << "group " << counter << "\n";
-//				if (VarDecl *vd = dyn_cast<VarDecl>(*i)) {
-//					std::cout << "\tVarDecl vd\n";
-//
-//					if(vd->hasInit()) {
-//					std::cout << vd->getType().getAsString() << " " << vd->getQualifiedNameAsString() << "[];\n";
-//					KernelDecls.insert(vd->getCanonicalDecl());
-//					std::string stmtstr = "TL_START\n" + vd->getNameAsString() + "[] = " + getStmtText(vd->getInit()) + ";\nTL_END\n";
-//					initStmts.insert(stmtstr);
-//					std::cout << stmtstr << "\n";
-//					} else {
-//						std::cout << vd->getType().getAsString() << " " << vd->getNameAsString() << "[];\n";
-//						KernelDecls.insert(vd);
-//					}
-//
-//					RewriteKernelVarDecl(vd);
-//				}
-//				//TODO other non-top level declarations??
-//			}
-//		}
+
     	//This big if searches for compound statements that can contain a syncthread call
     	if(IfStmt * is = dyn_cast<IfStmt>(s)){ //Candidate: IF statement
     		bool sync_then = false, sync_else = false; //We need this booleans after to start the rewriting if we found some syncthreads inside
@@ -915,7 +473,7 @@ private:
     			Rew->ReplaceText(SourceRange(ws->getLocStart(), ws->getLocEnd()), newwhile+"\n"+TL_START+"");
     		}
     	} else if (ForStmt * fs = dyn_cast<ForStmt>(s)){//For Statement
-    		//todo should we take into account the side effects? if yes same procedure of the while loop; special case: how we handle the declaration of the index variable in the for?
+    		//TODO should we take into account the side effects? if yes same procedure of the while loop; special case: how we handle the declaration of the index variable in the for?
     		bool sync = false;
 
 			SourceLocation loc_start_for;
@@ -957,7 +515,7 @@ private:
     			init = fs->getInit();
     			if (DeclStmt *vd = dyn_cast<DeclStmt>(init)) {
     				if(vd->isSingleDecl()){
-    					std::cout << "for con dichiarazione nell'inizializzazione!!!\n";
+    					//TODO Found a declaration in the for init stmts (should we check for multiple decls?)
     				} else {
 
     				}
@@ -978,30 +536,8 @@ private:
 				//update condition, check if there are threads that can iterate again, and goto
 				newfor += "\nbool go = false;\n"+TL_START+"\n" + getStmtText(inc) + ";\ncond1[tid]=("+getStmtText(cond)+");\nif(cond1[tid]) go=true;\n"+TL_END+"\nif(go) goto LABEL;\n";
 				//OLD//std::cout << "\nbool go = false;\nTL_START\n" << getStmtText(inc) << ";\ncond1=("+getStmtText(cond)+");\nif(cond1) go=true;\nTL_END\nif(go) goto LABEL;\n";
-				//std::cout << "\nif threads left goto label\n";
 				Rew->ReplaceText(SourceRange(fs->getLocStart(), fs->getLocEnd()), newfor+"\n"+TL_START+"");
     		}
-//    		if(sync){
-//				loc_sync.insert(std::make_pair(loc_end_for, loc_end_for));
-//				cond = fs->getCond();
-//				inc = fs->getInc();
-//				init = fs->getInit();
-//				//Declaring and initializing the condition, inserting the label
-//				Rew->InsertTextBefore(fs->getLocStart(), "\nTL_END\nbool cond1;\nTL_START\ncond1=("+getStmtText(cond)+");\nTL_END\nLABEL:");
-//				//Rew->ReplaceText(SourceRange StringRef)
-//				for(std::set<std::pair<SourceLocation, SourceLocation>>::iterator i = loc_sync.begin(), e = loc_sync.end(); i != e; i++){
-//					if(i == loc_sync.begin()){
-//						StringRef content = Lexer::getSourceText(CharSourceRange(SourceRange(loc_start_for, (*i).first),false), *SM, *LO);
-//						std::cout << "TL_START\nif(cond1){" << content.str() << "}\nTL_END\n";
-//					} else {
-//						StringRef content = Lexer::getSourceText(CharSourceRange(SourceRange((*(std::prev(i,1))).second, (*i).first),false), *SM, *LO);
-//						std::cout << "TL_START\nif(cond1){" << content.str() << "}\nTL_END\n";
-//					}
-//				}
-//				//update condition, check if there are threads that can iterate again, and goto
-//				std::cout << "\nbool go = false;\nTL_START\ncond1=("+getStmtText(cond)+");\nif(cond1) go=true;\nTL_END\nif(go) goto LABEL;\n";
-//				//std::cout << "\nif threads left goto label\n";
-//			}
 
     	} else if (CallExpr *ce = dyn_cast<CallExpr>(s)){ //normal syncthreads simply in the body
     		if(ce->getDirectCallee()->getNameAsString() == "__syncthreads"){
@@ -1020,73 +556,35 @@ private:
 
     	}
     }
-//
-//    bool RewriteKernelExpr(Expr *e, std::string &newExpr) {
-//    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-//    	//DEBUG std::cout << "RewriteKernelExpr e: " << sloc.printToString(*SM) << "\n";
-//    	//TODO Loop Fission algorithm (Stage 2) should be triggered here
-//    	//TODO but how to see everything in the scope of the __syncthreads() expr?
-//    	//TODO also data buffering (stage 3) in variable usage (exprs) should be applied here.
-//    	if (CallExpr *ce = dyn_cast<CallExpr>(e)){
-//    		std::string funcName = ce->getDirectCallee()->getNameAsString();
-//    		if (funcName == "__syncthreads") {
-//    			//TODO remove the final ";"
-//    			newExpr = "\nTL_END\n//"+getStmtText(ce)+";\nTL_BEGIN\n";
-//    		}
-//    	} else {
-//    		return false;
-//    	}
-//    	return true;
-//    }
 
-    void RewriteKernelVarDecl(VarDecl *var) {
-    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(var->getLocation());
-    	//DEBUG std::cout << "RewriteKernelVarDecl var: " << sloc.printToString(*SM) << "\n";
+    void RewriteKernelVarDecl(VarDecl *var) { //TODO Delete here and handle it on the Replicator tool?
     	//TODO Handle shared memory variables/pointers
         if (CUDASharedAttr *sharedAttr = var->getAttr<CUDASharedAttr>()) {
-        	//DEBUG std::cout << "\tvar->hasAttr<CUDASharedAttr>() = true\n";
             RewriteAttr(sharedAttr, "", *Rew);
             if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){
-            	//DEBUG std::cout << "\t\tvar->hasAttr<CUDADeviceAttr>() = true\n";
             	RewriteAttr(devAttr, "", *Rew);
             }
             //TODO rewrite extern shared mem
             //if (var->isExtern())?
         }
-        //for(int i=0; i < KernelVars.c)
-        //TODO Data buffering should be applied here (Stage 3)
-        //TODO How to recognize which kind of variables we want to "vectorize"?
-        //TODO How do we do it?
-
     }
 
     void RewriteHostVarDecl(VarDecl* var){
-    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(var->getLocation());
-    	//DEBUG std::cout << "RewriteHostVarDecl var: " << sloc.printToString(*SM) << "\n";
     	if (CUDAConstantAttr *constAttr = var->getAttr<CUDAConstantAttr>()) {
-    		//DEBUG std::cout << "\tvar->hasAttr<CUDAConstantAttr>() = true\n";
     		//TODO: Do something with __constant__ memory declarations
             RewriteAttr(constAttr, "", *Rew);
-            if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){
-            	//DEBUG std::cout << "\t\tvar->hasAttr<CUDADeviceAttr>() = true\n";
+            if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){ //Device variables?
             	RewriteAttr(devAttr, "", *Rew);
             }
-//            //DeviceMemVars.insert(var);
+//            DeviceMemVars.insert(var);
 //            ConstMemVars.insert(var);
 //
-//            TypeLoc origTL = var->getTypeSourceInfo()->getTypeLoc();
-//            if (LastLoc.isNull() || origTL.getBeginLoc() != LastLoc.getBeginLoc()) {
-//                LastLoc = origTL;
-//                RewriteType(origTL, "cl_mem", HostRewrite);
-//            }
-//            return;
+//            return; //?
         }
         else if (CUDASharedAttr *sharedAttr = var->getAttr<CUDASharedAttr>()) {
-        	//DEBUG std::cout << "\tvar->hasAttr<CUDASharedAttr>() = true\n";
             //Handle __shared__ memory declarations
             RewriteAttr(sharedAttr, "", *Rew);
             if (CUDADeviceAttr *devAttr = var->getAttr<CUDADeviceAttr>()){
-            	//DEBUG std::cout << "\t\ttvar->hasAttr<CUDADeviceAttr>() = true\n";
             	RewriteAttr(devAttr, "", *Rew);
             }
 //            //TODO rewrite shared mem
@@ -1095,7 +593,6 @@ private:
 //            SharedMemVars.insert(var);
         }
         else if (CUDADeviceAttr *attr = var->getAttr<CUDADeviceAttr>()) {
-        	//DEBUG std::cout << "\tvar->hasAttr<CUDADeviceAttr>() = true\n";
             //Handle __device__ memory declarations
             RewriteAttr(attr, "", *Rew);
             //TODO add to devmems, rewrite type
@@ -1103,8 +600,6 @@ private:
     }
 
     bool RewriteHostExpr(Expr *e, std::string &newExpr) {
-    	//SourceLocation sloc = SM->getSpellingLoc(e->getExprLoc());
-    	//std::cout << "RewriteHostExpr e: " << sloc.printToString(*SM) << "\n";
 
         SourceRange realRange(SM->getExpansionLoc(e->getLocStart()),
                               SM->getExpansionLoc(e->getLocEnd()));
@@ -1113,34 +608,28 @@ private:
         Rewriter exprRewriter(*SM, *LO);
 
         if (clang::CUDAKernelCallExpr *kce = dyn_cast<clang::CUDAKernelCallExpr>(e)) {
-        	//DEBUG std::cout << "\tCUDAKernelCallExpr kce\n";
         	newExpr = RewriteCUDAKernelCall(kce);
         	return true;
         } else if  (CallExpr *ce = dyn_cast<CallExpr>(e)) {
-        	if (ce->getDirectCallee()->getNameAsString().find("cuda") == 0) {
-        		//DEBUG std::cout << "\tCallExpr ce "<< ce->getDirectCallee()->getNameAsString() << "\n";
+        	if (ce->getDirectCallee()->getNameAsString().find("cuda") == 0) { //CUDA API
         		return RewriteCUDACall(ce, newExpr);
         	}
         	else { //Common function call, fixme default value parameters
         	}
-        } else if (MemberExpr *me = dyn_cast<MemberExpr>(e)) {
-        	//DEBUG std::cout << "\tMemberExpr me\n";
-        	//Catches expressions which refer to the member of a struct or class
-        	// in the CUDA case these are primarily just dim3s and cudaDeviceProp
-        } else if (ExplicitCastExpr *ece = dyn_cast<ExplicitCastExpr>(e)) {
-        	//DEBUG std::cout << "\tExplicitCastExpr ece\n";
-        	//Rewrite explicit casts of CUDA data types
-        } else if (UnaryExprOrTypeTraitExpr *soe = dyn_cast<UnaryExprOrTypeTraitExpr>(e)) {
-        	//DEBUG std::cout << "\tUnaryExprOrTypeTraitExpr soe\n";
-        	//Rewrite unary expressions or type trait expressions (things like sizeof)
-        } else if (CXXTemporaryObjectExpr *cte = dyn_cast<CXXTemporaryObjectExpr>(e)) {
-        	//DEBUG std::cout << "\tCXXTemporaryObjectExpr cte\n";
-        	//Catches dim3 declarations of the form: some_var=dim3(x,y,z);
-        	// the RHS is considered a temporary object
-        } else if (CXXConstructExpr *cce = dyn_cast<CXXConstructExpr>(e)) {
-        	//DEBUG std::cout << "\tCXXConstructExpr cce\n";
-        	//Catches dim3 declarations of the form: dim3 some_var(x,y,z);
         }
+//        else if (MemberExpr *me = dyn_cast<MemberExpr>(e)) {
+//        	//Catches expressions which refer to the member of a struct or class
+//        	// in the CUDA case these are primarily just dim3s and cudaDeviceProp
+//        } else if (ExplicitCastExpr *ece = dyn_cast<ExplicitCastExpr>(e)) {
+//        	//Rewrite explicit casts of CUDA data types
+//        } else if (UnaryExprOrTypeTraitExpr *soe = dyn_cast<UnaryExprOrTypeTraitExpr>(e)) {
+//        	//Rewrite unary expressions or type trait expressions (things like sizeof)
+//        } else if (CXXTemporaryObjectExpr *cte = dyn_cast<CXXTemporaryObjectExpr>(e)) {
+//        	//Catches dim3 declarations of the form: some_var=dim3(x,y,z);
+//        	// the RHS is considered a temporary object
+//        } else if (CXXConstructExpr *cce = dyn_cast<CXXConstructExpr>(e)) {
+//        	//Catches dim3 declarations of the form: dim3 some_var(x,y,z);
+//        }
         bool ret = false;
         //Do a DFS, recursing into children, then rewriting this expression
         //if rewrite happened, replace text at old sourcerange
@@ -1148,33 +637,20 @@ private:
             std::string s;
             Expr *child = (Expr *) *CI;
             if (child && RewriteHostExpr(child, s)) {
-            	//DEBUG std::cout << "I was a child?\n";
                 //Perform "rewrite", which is just a simple replace
                 ReplaceStmtWithText(child, s, exprRewriter);
                 ret = true;
             }
         }
         newExpr = exprRewriter.getRewrittenText(realRange);
-        //Rew->ReplaceText(realRange, newExpr);
-
-//        SourceRange newrealRange(SM->getExpansionLoc(e->getLocStart()),
-//                              SM->getExpansionLoc(e->getLocEnd()));
-//        newExpr = exprRewriter.getRewrittenText(realRange);
         return ret;
     }
 
     std::string RewriteCUDAKernelCall(clang::CUDAKernelCallExpr *kernelCall) {
-    	//DEBUG SourceLocation sloc = SM->getSpellingLoc(kernelCall->getExprLoc());
-    	//DEBUG std::cout << "RewriteCUDAKernelCall kernelCall: " << sloc.printToString(*SM) << "\n";
         CallExpr *kernelConfig = kernelCall->getConfig();
         Expr *grid = kernelConfig->getArg(0);
         Expr *block = kernelConfig->getArg(1);
         FunctionDecl* callee = kernelCall->getDirectCallee();
-//        std::cout << PrintDeclToString(callee) << "\n"; //
-//        std::cout << getStmtText(kernelCall) << "\n";
-//        std::cout << getStmtText(kernelCall->getCallee()) << "\n";
-//        std::cout << getStmtText(block) << "\n"; //g
-//        std::cout << getStmtText(kernelCall->getArg(0)) << "\n"; //42
 
         //TODO Check if this is a general rule
         std::string SStr;
@@ -1200,7 +676,7 @@ private:
 
 
 
-    //The workhorse that takes the constructed replacement attribute and inserts it in place of the old one
+    //Takes the constructed replacement attribute and inserts it in place of the old one
     void RewriteAttr(Attr *attr, std::string replace, Rewriter &rewrite){
     	//DEBUG std::cout << "RewriteAttr!\n";
         SourceLocation instLoc = SM->getExpansionLoc(attr->getLocation());
@@ -1214,32 +690,17 @@ private:
         return std::string(SM->getCharacterData(a), SM->getCharacterData(b)-SM->getCharacterData(a));
     }
 
-    //DEPRECATED: Old method to get the string representation of a Stmt
-       std::string PrintStmtToString(Stmt *s) {
-           std::string SStr;
-           llvm::raw_string_ostream S(SStr);
-           s->printPretty(S, 0, PrintingPolicy(*LO));
-           return S.str();
-       }
 
-       //DEPRECATED: Old method to get the string representation of a Decl
-       //TODO: Test replacing the one remaining usage in HandleTranslationUnit with getStmtText
-       std::string PrintDeclToString(Decl *d) {
-           std::string SStr;
-           llvm::raw_string_ostream S(SStr);
-           d->print(S);
-           return S.str();
-       }
 
-       //Replace a chunk of code represented by a Stmt with a constructed string
-       bool ReplaceStmtWithText(Stmt *OldStmt, llvm::StringRef NewStr, Rewriter &Rewrite) {
-           SourceRange origRange = OldStmt->getSourceRange();
-           SourceLocation s = SM->getExpansionLoc(origRange.getBegin());
-           SourceLocation e = PP->getLocForEndOfToken(SM->getExpansionLoc(origRange.getEnd()));
-           return Rewrite.ReplaceText(s,
-                                      Rewrite.getRangeSize(SourceRange(s, e)),
-                                      NewStr);
-       }
+   //Replace a chunk of code represented by a Stmt with a constructed string
+   bool ReplaceStmtWithText(Stmt *OldStmt, llvm::StringRef NewStr, Rewriter &Rewrite) {
+	   SourceRange origRange = OldStmt->getSourceRange();
+	   SourceLocation s = SM->getExpansionLoc(origRange.getBegin());
+	   SourceLocation e = PP->getLocForEndOfToken(SM->getExpansionLoc(origRange.getEnd()));
+	   return Rewrite.ReplaceText(s,
+								  Rewrite.getRangeSize(SourceRange(s, e)),
+								  NewStr);
+   }
 };
 
 // For each source file provided to the tool, a new FrontendAction is created.
@@ -1259,27 +720,9 @@ private:
   Rewriter TheRewriter;
 };
 
-//class Replication : public ASTFrontendAction{
-//public:
-//	Replication(){}
-//	void EndSourceFileAction() override {
-//		TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs()); //write in a temporary (file, stream?)
-//
-//	}
-//
-//	std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
-//		TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-//		return llvm::make_unique<MyReplicator>(&CI, &TheRewriter);
-//	}
-//private:
-//	Rewriter TheRewriter;
-//};
-
-
 
 int main(int argc, const char **argv) {
   CommonOptionsParser op(argc, argv, MatcherSampleCategory);
   ClangTool Tool(op.getCompilations(), op.getSourcePathList());
-  //Tool.run(newFrontendActionFactory<Replication>().get());
   return Tool.run(newFrontendActionFactory<MyFrontendAction>().get());
 }

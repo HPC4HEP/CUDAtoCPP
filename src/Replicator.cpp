@@ -117,6 +117,7 @@ private:
      * FIXME 1 At the moment the only scope we handle is the global one of the function.
      * FIXME 1 We need to take into account multiple declarations of variables with the same names in different scopes,
      * FIXME 1 so moving everything at the top of the scope on which we declared the variable and not at the beginning of the body.
+     * TODO 1 this can be done probably using the declcontext
      *
      * FIXME 2 We need to capture the value of the block dimension in the kernel call in the host code if we want to augment the dimensionality
      * FIXME 2 in a static way. Otherwise we need to allocate the new variables dinamically. FIXME!Now the dimension is just hardcoded!
@@ -165,7 +166,7 @@ private:
     						* However is still needed to move it to the top of the scope.
     						* FIXME 1 The dimension of the array is calculated before the translation if #defined
     						* FIXME 1 and written in a strange way if we get the type. TODO ConstantArray?
-    						* FIXME 2 For some reason we're not able to remove the declaration from the original location.4
+    						* FIXME 2 For some reason we're not able to remove the declaration from the original location.
     						*/
     						if (CUDASharedAttr *sharedAttr = vd->getAttr<CUDASharedAttr>()) {
     							//Workaround for bugged gettype, we take all the text.
