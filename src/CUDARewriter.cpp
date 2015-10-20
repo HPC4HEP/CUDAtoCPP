@@ -145,7 +145,7 @@ private:
     std::string TL_START1 = "for(threadIdx.z=0; threadIdx.z < blockDim.z; threadIdx.z++){\n";
     std::string TL_START2 = "for(threadIdx.y=0; threadIdx.y < blockDim.y; threadIdx.y++){\n";
     std::string TL_START3 = "for(threadIdx.x=0; threadIdx.x < blockDim.x; threadIdx.x++){\n";
-    std::string TL_START = TL_START1+TL_START2+TL_START3+"tid=threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y;";
+    std::string TL_START = TL_START1+TL_START2+TL_START3+"__ttid_=threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y;";
     //todo macro for tid instead of recalculating it everytime? it's the same maybe
 
 
@@ -233,6 +233,8 @@ private:
 
 
     void T3(Stmt *s, bool first){
+
+    	//TODO apply this method recursively to statements inside statements (nested syncs)
     	if(first){ //We are entering the method for the first time
     		SourceLocation begin = s->getLocStart();
     		if(CompoundStmt * cs = dyn_cast<CompoundStmt>(s)){
@@ -539,7 +541,9 @@ private:
 				Rew->ReplaceText(SourceRange(fs->getLocStart(), fs->getLocEnd()), newfor+"\n"+TL_START+"");
     		}
 
-    	} else if (CallExpr *ce = dyn_cast<CallExpr>(s)){ //normal syncthreads simply in the body
+    	}
+    	//TODO: do while, select case, other compund statements that can contain synchthreads calls
+    	else if (CallExpr *ce = dyn_cast<CallExpr>(s)){ //normal syncthreads simply in the body
     		if(ce->getDirectCallee()->getNameAsString() == "__syncthreads"){
     			//simply closing and reopening a thread loop
     			std::string a = "\n"+TL_END+"\n//"+getStmtText(ce)+";\n"+TL_START+"\n";
@@ -668,9 +672,47 @@ private:
     	//DEBUG SourceLocation sloc = SM->getSpellingLoc(cudaCall->getExprLoc());
     	//DEBUG std::cout << "RewriteCUDACall cudaCall: " << sloc.printToString(*SM) << "\n";
         std::string funcName = cudaCall->getDirectCallee()->getNameAsString();
-        //TODO we have to match funcName.
-        std::string a = " //cuda api translation required";
-        newExpr = funcName + a;
+        //TODO we have to match funcName or there's a better way to do it?
+        if(funcName == "cudaMemcpy"){
+        	//Inspect kind of memcpy and rewrite accordingly
+			Expr *dst = cudaCall->getArg(0);
+			Expr *src = cudaCall->getArg(1);
+			Expr *count = cudaCall->getArg(2);
+
+			std::string newDst, newSrc, newCount;
+			RewriteHostExpr(dst, newDst);
+			RewriteHostExpr(src, newSrc);
+			RewriteHostExpr(count, newCount);
+			//std::cout << "\n test \n	" << newDst << ", " << newSrc << ", " << newCount << "\n";
+			//Just translating to a normal memcpy, to ensure data correctness
+			newExpr = "memcpy(" + newDst + ", " + newSrc + ", " + newCount + ");";
+
+			//Ignoring the kind of cudaMemcpy
+			//DeclRefExpr *dr = FindStmt<DeclRefExpr>(kind);
+			//EnumConstantDecl *enumConst = dyn_cast<EnumConstantDecl>(dr->getDecl());
+			//Expr *kind = cudaCall->getArg(3);
+			//std::string enumString = enumConst->getNameAsString();
+        } else if(funcName == "cudaFree"){
+        	std::string newarg;
+        	RewriteHostExpr(cudaCall->getArg(0), newarg);
+        	newExpr = "free(" + newarg + ");";
+        } else if(funcName == "cudaMalloc"){
+        	std::string newarg, newsize;
+        	Expr *ptr = cudaCall->getArg(0);
+        	//FIXME explicit cast in cudaMalloc doesn't works (i.e. cudaMalloc((void**) var, size));
+        	if(UnaryOperator *UO = dyn_cast<UnaryOperator>(ptr)){
+        		DeclRefExpr* sube = dyn_cast<DeclRefExpr>(UO->getSubExpr());
+        		std::cout << "works? : "<< sube->getType().getAsString() << " " << sube->getNameInfo().getAsString() << "\n\n";
+        		RewriteHostExpr(ptr, newarg);
+				RewriteHostExpr(cudaCall->getArg(1), newsize);
+				std::cout << "\n test \n" << newarg << " of type " << ptr->getType().getUnqualifiedType().getAsString() <<" , " << newsize << "\n";
+				newExpr = sube->getNameInfo().getAsString() + " = (" + sube->getType().getAsString() + ") malloc(" + newsize + ");"; //TODO CHECK
+        	}
+
+        } else {
+        	std::string a = " //CUDA API NOT HANDLED";
+        	newExpr = funcName + a;
+        }
         return true;
     }
 

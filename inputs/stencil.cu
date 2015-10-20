@@ -1,7 +1,7 @@
 #define RADIUS 3
 #define BLOCK_SIZE 32
 #define NELEMENTS 1048576
-#include "tbb/tbb.h"
+//#include "tbb/tbb.h"
 #include <stdio.h>
 __global__ void stencil_1d(int *in, int *out) {
 
@@ -50,7 +50,7 @@ int main(void) {
     dim3 blockSize(BLOCK_SIZE, 1, 1);
     dim3 gridSize((int)ceil((float)NELEMENTS/blockSize.x), 1, 1);
 
-    tbb::tick_count t0 = tbb::tick_count::now();
+    //tbb::tick_count t0 = tbb::tick_count::now();
 
     cudaMemcpy( d_in, h_in, bytes, cudaMemcpyHostToDevice);
 
@@ -63,8 +63,8 @@ int main(void) {
 
 	cudaMemcpy( h_out, d_out, bytes, cudaMemcpyDeviceToHost );
 
-    tbb::tick_count t1 = tbb::tick_count::now();
-    printf("time for action = %g seconds\n", (t1-t0).seconds() );
+    //tbb::tick_count t1 = tbb::tick_count::now();
+    //printf("time for action = %g seconds\n", (t1-t0).seconds() );
 
 	cudaFree(d_in);
 	cudaFree(d_out);

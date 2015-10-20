@@ -3,14 +3,6 @@ __global__ void add(int *a, int *b, int*c){
 	*c = *a + *b;
 }
 
-__host__ int somethingelse(){
-	return 3;
-}
-
-__device__ int something(){
-	return 2;
-}
-
 int main(void){
 	int a, b, c;
 	int *d_a, *d_b, *d_c;
@@ -18,7 +10,7 @@ int main(void){
 	
 	cudaStream_t st;
 
-	cudaMalloc((void**)&d_a, size);
+	cudaMalloc(&d_a, size);
 	cudaMalloc((void**)&d_b, size);
 	cudaMalloc((void**)&d_c, size);
 	
@@ -32,7 +24,6 @@ int main(void){
 	dim3 bbb(1,1,1);
 	add<<<1,1>>>(d_a, d_b, d_c);
 
-	somethingelse();
 	cudaMemcpy(&c, d_c, size, cudaMemcpyDeviceToHost);
 
 	cudaFree(d_a);

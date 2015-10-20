@@ -106,7 +106,7 @@ private:
     std::string TL_START1 = "for(threadIdx.z=0; threadIdx.z < blockDim.z; threadIdx.z++){\n";
     std::string TL_START2 = "for(threadIdx.y=0; threadIdx.y < blockDim.y; threadIdx.y++){\n";
     std::string TL_START3 = "for(threadIdx.x=0; threadIdx.x < blockDim.x; threadIdx.x++){\n";
-    std::string tid = "tid=threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y;"; //TODO MACRO for tid instead of recalculating it everytime? (it's the same maybe)
+    std::string tid = "__ttid_=threadIdx.x + threadIdx.y*blockDim.x + threadIdx.z*blockDim.y;"; //TODO MACRO for tid instead of recalculating it everytime? (it's the same maybe)
     std::string TL_START = TL_START1+TL_START2+TL_START3+tid;
 
 
@@ -129,7 +129,7 @@ private:
 		replicate(body); //Call to the analysis of the variables
 
 		//We have also to declare the now explicit threadIdx, the tid to access the variables, and the dimension of the new dimensionality
-		std::string initsupport = "\ndim3 threadIdx;\nint tid;\nint numThreads = 32;\n";
+		std::string initsupport = "\ndim3 threadIdx;\nint __ttid_;\nint numThreads = 32;\n";
 		for(int i = 0; i < NewDecls.size(); i++){
 			//We add to initsupport the list of the declarations we are moving
 			initsupport += NewDecls[i] + "\n";
@@ -175,8 +175,26 @@ private:
     							//NewDecls.push_back(test.str()+";");
 
     							//Bugged getType
+    							//std::cout << "Prova body " << getStmtText(vd->getBody()) << "\n";
+    							//std::cout << "type sloc" << vd->getTypeSpecStartLoc().printToString(*SM) << "\n";
+    							//std::cout << "vd end " << vd->getLocEnd().printToString(*SM) << "\n";
+    							SourceRange temprange = SourceRange(vd->getTypeSpecStartLoc(), PP->getLocForEndOfToken(vd->getLocEnd()));
+    							StringRef temp2 = Lexer::getSourceText(CharSourceRange(temprange, false), *SM, *LO);
+    							std::cout << "test2 " << temp2.str() << "\n";
+    							NewDecls.push_back(temp2.str()+";");
+    							clang::Rewriter::RewriteOptions ro;
+    							ro.IncludeInsertsAtBeginOfRange = false;
+    							ro.IncludeInsertsAtEndOfRange = false;
+    							ro.RemoveLineIfEmpty = true;
     							//NewDecls.push_back(vd->getType().getAsString()+ " "+ vd->getNameAsString()+";");
-
+    							SourceRange s = SourceRange(SM->getExpansionLoc(vd->getLocStart()), PP->getLocForEndOfToken(PP->getLocForEndOfToken(vd->getLocEnd())));
+    							CharSourceRange cs = CharSourceRange(s, false);
+    							std::cout << "text in range: " << Lexer::getSourceText(cs, *SM, *LO).str() << "\n";
+    							std::cout << "sr is " << s.isValid() << ", cs is " << cs.isValid() << ", locstart is " << Rew->isRewritable(vd->getLocStart()) << ", locend is " << Rew->isRewritable(PP->getLocForEndOfToken(vd->getLocEnd()))<< "\n";
+    							bool result = Rew->RemoveText(cs, ro);
+    							std::cout << "did it? " << result << "\n";
+    							//bool result2 = Rew->InsertTextBefore(SM->getExpansionLoc(sharedAttr->getLocation()), "//");
+    							//std::cout << "did it2? " << result2 << "\n";
     							//If it has an initialization in the same statement of the declaration, we have to keep it.
         						//if(vd->hasInit()){
         							//Rew->ReplaceText(SourceRange((*i2)->getLocStart(), PP->getLocForEndOfToken((*i2)->getLocEnd())), vd->getNameAsString() + " = " + getStmtText(vd->getInit()) + ";");
@@ -195,7 +213,7 @@ private:
 								NewDecls.push_back(vd->getType().getAsString()+" "+vd->getNameAsString()+"[numThreads];");
 								//Again if there is an initialization, we have to keep it.
 								if(vd->hasInit()){
-									Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), vd->getNameAsString() + "[tid] = " + getStmtText(vd->getInit()) + ";");
+									Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), vd->getNameAsString() + "[__ttid_] = " + getStmtText(vd->getInit()) + ";");
 								} else { //otherwise we delete everything.
 									Rew->ReplaceText(SourceRange(vd->getLocStart(), PP->getLocForEndOfToken(vd->getLocEnd())), "");
 								}
@@ -208,7 +226,7 @@ private:
     		else if(DeclRefExpr *dre = dyn_cast<DeclRefExpr>(s)){ //Searching for DeclRefExpr
     			if(KernelDecls.find(dre->getNameInfo().getAsString()) != KernelDecls.end()){ //We found one matching the declarations saved before
     				//Then we access it by thread id.
-    				Rew->ReplaceText(SourceRange(dre->getLocStart(), dre->getLocEnd()), dre->getNameInfo().getAsString()+"[tid]");
+    				Rew->ReplaceText(SourceRange(dre->getLocStart(), dre->getLocEnd()), dre->getNameInfo().getAsString()+"[__ttid_]");
     			}
     		}
     		//Keep iterating

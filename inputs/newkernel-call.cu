@@ -11,7 +11,7 @@ __global__ void g1(int x) {
 	while(i<1){
 		i++;
 		__syncthreads();
-		i--
+		i--;
 	}
 	
 	for(i = 0; i < 2; i++){
@@ -30,5 +30,4 @@ int main(void) {
   g1<<<1, k>>>(42);
   g1<<<1, dim3(1,1,1)>>>(42);
   g1<<<1, g>>>(42);
-  f();
 }
